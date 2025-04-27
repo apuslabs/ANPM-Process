@@ -1,0 +1,2 @@
+- 可能涉到Token的区域必须使用BigInt
+- 业务中可能需要调整的参数提取到config.lua中
