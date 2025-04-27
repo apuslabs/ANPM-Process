@@ -53,6 +53,8 @@
 
 **Handler**
 
+- `Handler name`对应Handlers.add的第一个参数
+- `Handler patter`对应Handlers.add的第二个参数
 - 面向用户提供的接口必须使用 `msg.reply({ code: <http_code> })`
 
 **缩写使用规范**

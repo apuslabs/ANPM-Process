@@ -1,2 +1,5 @@
 - 可能涉到Token的区域必须使用BigInt
 - 业务中可能需要调整的参数提取到config.lua中
+- Process的Owner是ao.env.Process.Owner
+- 由于AO重载代码时是覆盖逻辑，因此需要持久化的变量例如sqlite内存数据库不可以使用local，而要使用全局变量，并使用`X = X or default`来避免重载时全局变量被覆盖
+- 能使用msg.reply或msg.forward的情况下尽量使用reply和forward
