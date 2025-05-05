@@ -16,6 +16,18 @@ end
 BintUtils.toBalanceValue = function(a)
   return tostring(bint(a))
 end
+BintUtils.lt = function(a, b)
+  return bint(a) < bint(b)
+end
+BintUtils.le = function(a, b)
+  return bint(a) <= bint(b)
+end
+BintUtils.gt = function(a, b)
+  return bint(a) > bint(b)
+end
+BintUtils.ge = function(a, b)
+  return bint(a) >= bint(b)
+end
 BintUtils.toNumber = function(a)
   return tonumber(a)
 end
