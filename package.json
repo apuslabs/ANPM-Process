@@ -1,0 +1,27 @@
+{
+  "name": "anpm-process",
+  "version": "1.0.0",
+  "description": "The processes of ANPM(APUS Network Pool Management)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node --experimental-wasm-memory64 spec/test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apuslabs/ANPM-Process.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/apuslabs/ANPM-Process/issues"
+  },
+  "homepage": "https://github.com/apuslabs/ANPM-Process#readme",
+  "dependencies": {
+    "fs-extra": "^11.3.0"
+  }
+}
