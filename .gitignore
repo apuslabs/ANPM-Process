@@ -1,2 +1,4 @@
 build
 node_modules
+memory-bank/*
+!memory-bank/projectbrief.md
