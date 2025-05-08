@@ -1,6 +1,8 @@
 local log = {}
 local json = require('json')
 
+log.LogLevel = "info" -- Default log level: info
+
 local Colors = {
     gray = "\27[90m",
     reset = "\27[0m",
@@ -42,7 +44,7 @@ for i, x in ipairs(modes) do
     local nameupper = x.name:upper()
     log[x.name] = function(...)
         -- Return early if we're below the log level
-        if i < levels[LogLevel] then
+        if i < levels[log.LogLevel] then
             return
         end
 

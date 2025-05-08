@@ -8,9 +8,8 @@
 local JSON = require("json")
 local Logger = require('utils.log')
 local BintUtils = require('utils.bint_utils')
-local Permissions = require('utils.permissions')
-local PoolDb = require('pool.pool_db').new() -- Initialize DAL
-local Config = require('pool.config')
+local PoolDb = require('dao.pool_db').new() -- Initialize DAL
+local Config = require('utils.config')
 
 -- Process State (In-memory, persisted via AO mechanisms)
 -- Credits: Map<wallet_address, bigint_string>
@@ -49,6 +48,42 @@ Handlers.add(
         Target = user,
         Tags = { Code = "200", Action = "Credit-Added" },
         Data = JSON.encode({ User = user, NewBalance = Credits[user] })
+      }
+    )
+  end
+)
+
+--- Handler: Transfer-Credits
+-- Description: Transfer credits back to Pool Manager.
+Handlers.add(
+  "Transfer-Credits",
+  { Action = "Transfer-Credits", Quantity = "_" },
+  function(msg)
+    local user = msg.From
+    local quantity = msg.Tags.Quantity
+
+    Logger.trace("Processing Transfer-Credits for User: " .. user .. ", Quantity: " .. quantity)
+
+    -- Check if user has enough credits
+    local current_balance = Credits[user] or '0'
+    if BintUtils.lt(current_balance, quantity) then
+      Logger.warn("Transfer-Credits failed: Insufficient credits for user " ..
+        user .. ". Balance: " .. current_balance .. ", Transfer Amount: " .. quantity)
+      msg.reply({
+        Tags = { Code = "403" },
+        Data = "Insufficient credits"
+      })
+      return
+    end
+
+    -- Deduct Credit
+    Credits[user] = BintUtils.sub(current_balance, quantity)
+
+    -- Send confirmation back to Pool Manager
+    ao.send(
+      {
+        Target = POOL_MGR_PROCESS_ID,
+        Tags = { Action = "AN-Credit-Notice", User = user, Quantity = quantity },
       }
     )
   end

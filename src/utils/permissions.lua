@@ -1,4 +1,4 @@
-local config = require('config') -- Assuming config is appropriately loaded based on context
+local config = require('utils.config') -- Assuming config is appropriately loaded based on context
 
 local M = {}
 

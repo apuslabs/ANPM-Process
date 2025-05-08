@@ -1,9 +1,7 @@
 local sqlite3 = require('lsqlite3')
 local DbAdmin = require('utils.db_admin')
-local BintUtils = require('utils.bint_utils')
 local Logger = require('utils.log')
-local Config = require('pool.config') -- Use relative path from src
-
+Logger.LogLevel = "trace"
 -- Initialize in-memory SQLite database or reuse existing one
 PoolDb = PoolDb or sqlite3.open_memory()
 
@@ -12,7 +10,7 @@ PoolDAO.__index = PoolDAO
 
 -- Database Initialization
 local function initialize_database(db_admin)
-  Logger.log('Initializing Pool database schema...')
+  Logger.trace('Initializing Pool database schema...')
   db_admin:exec([[
     CREATE TABLE IF NOT EXISTS tasks (
       ref INTEGER PRIMARY KEY,
@@ -28,7 +26,7 @@ local function initialize_database(db_admin)
   ]])
   -- No separate credit table needed, will use Lua map `Credits` in main process file
   -- No separate oracle table needed, will use Lua map `Oracles` in main process file
-  Logger.log('Pool database schema initialized.')
+  Logger.trace('Pool database schema initialized.')
 end
 
 --- Creates a new PoolDAO instance.
