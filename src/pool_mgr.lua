@@ -1,0 +1,276 @@
+local BintUtils = require('utils.bint_utils')
+local json = require('json')
+local Logger = require('utils.log')
+local PoolMgrDb = require('dao.pool_mgr_db').new() -- Initialize DAL
+Undistributed_Credits = Undistributed_Credits or {}
+Pools = Pools or {}
+CreditExchangeRate = 1
+ApusTokenId = ApusTokenId or "aK2fFFBJ1Hilzg_3yeoJuFywZJ8JJXhxMVC3WjBmPkE"
+Owner = "aK2fFFBJ1Hilzg_3yeoJuFywZJ8JJXhxMVC3WjBmPkE"
+-- Constants from Config
+LogLevel = LogLevel or 'info'
+
+
+local PoolTemplate = {
+  pool_id = nil,
+  creator = nil,
+  staking_capacity = 0,
+  rewards_amount = 0,
+  created_at = nil,
+  started_at = nil
+}
+
+local function createPool(pool_id, creator, staking_capacity,rewards_amount,created_at,started_at)
+  PoolTemplate.pool_id = pool_id
+  PoolTemplate.creator = creator
+  PoolTemplate.staking_capacity = staking_capacity
+  PoolTemplate.rewards_amount = rewards_amount
+  PoolTemplate.created_at = created_at
+  PoolTemplate.started_at = started_at
+  return PoolTemplate
+end
+
+Logger.info('Pool Manager Process  Started. Owner999')
+Handlers.add(
+  "Buy-Credit",
+  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Buy-Credit") end,
+  function (msg)
+    local user = msg.Tags.Sender -- The user who sent the APUS
+    local apus_amount = msg.Tags.Quantity
+    local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
+    Logger.info("Processing Buy-Credit from User: " .. user .. ", APUS Quantity: " .. apus_amount)
+    -- assert Token is APUS 
+    assert(msg.From == ApusTokenId, 'Invalid Token')
+    -- Calculate credits to add
+    local credits_to_add = BintUtils.multiply(apus_amount, CreditExchangeRate)
+    Logger.info("User: " .. user .. ", Credits to Add: " .. credits_to_add .. ", Credit Exchange Rate: " .. CreditExchangeRate)
+    Undistributed_Credits[user] = BintUtils.add(Undistributed_Credits[user] or '0', credits_to_add)
+    -- Record transaction and update balance (adds to unallocated pool '0')
+    PoolMgrDb:recordCreditTransaction(ref,user, "buy", apus_amount, "0")
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode({ User = user, Balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
+    })
+  end
+)
+local function isValidPool(poolId)
+  return Pools[poolId] ~= nil
+end
+Handlers.add(
+  "Get-Undistributed-Credits",
+  Handlers.utils.hasMatchingTag("Action", "Get-Undistributed-Credits"),
+  function(msg)
+    local user = msg.From
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode({ User = user, Balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
+    })
+  end
+)
+Handlers.add(
+  "Set-Credit-Ratio",
+  Handlers.utils.hasMatchingTag("Action", "Set-Credit-Ratio"),
+  function (msg)
+    -- Permission Check
+    if msg.From ~= Owner then
+      Logger.warn("Set-Credit-Ratio denied: Sender " .. msg.From .. " is not the owner.")
+      msg.reply({ Tags = { Code = "403" } , Data = "Unauthorized" })
+      return
+    end
+
+    local new_rate = msg.Tags.Ratio
+    if not new_rate or  BintUtils.lt(new_rate, '0') then
+       Logger.error("Set-Credit-Ratio failed: Invalid rate amount provided: " .. tostring(new_rate))
+       msg.reply({Tags = { Code = "400" }, Data = "Invalid rate amount" })
+       return
+    end
+
+    CreditExchangeRate = new_rate
+    Logger.info("Credit exchange rate updated to: " .. CreditExchangeRate .. " by owner.")
+    msg.reply({Tags = { Code = "200" }, Data = "CreditExchangeRate set to: " .. CreditExchangeRate .. " by owner." })
+  end
+)
+Handlers.add(
+  "Get-All-Credits",
+  Handlers.utils.hasMatchingTag("Action", "Get-All-Credits"),
+  function(msg)
+    -- Permission Check
+    Logger.info("get ALL credits By " .. msg.From)
+    if msg.From ~= Owner then
+      Logger.warn(" Get-All-Credits denied: Sender " .. msg.From .. " is not the owner.")
+      msg.reply({Tags = { Code = "403"} , Data = "Unauthorized"})
+      return
+    end
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode(Undistributed_Credits)
+    })
+  end
+)
+--- Handler: Get-Credits-Records
+-- Description: Returns Credits records for a specific user.
+-- Pattern: { Action = "Get-Credits-Records" }
+Handlers.add(
+  "Get-Credits-Records",
+  Handlers.utils.hasMatchingTag("Action", "Get-Credits-Records"),
+  function(msg)
+    Logger.info("get credits records for " .. msg.From)
+    local records = PoolMgrDb:getUserCreditsRecords(msg.From)
+    local records_list = {}
+    for _, record in pairs(records) do
+      records_list[#records_list+1] = { ref = record.ref, record = record }
+    end
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode(records_list)
+    })
+  end
+)
+
+--- Handler: Get-All-Credits-Records
+-- Description: Returns  All Credits records.
+-- Pattern: { Action = "Get-All-Credits-Records" }
+Handlers.add(
+  "Get-All-Credits-Records",
+  Handlers.utils.hasMatchingTag("Action", "Get-All-Credits-Records"),
+  function(msg)
+    -- Permission Check
+    Logger.info("get ALL credits Records By " .. msg.From)
+    if msg.From ~= Owner then
+      Logger.warn(" Get-All-Credits-Records denied: Sender " .. msg.From .. " is not the owner.")
+      msg.reply({Tags = { Code = "403"} , Data = "Unauthorized"})
+      return
+    end
+    local records = PoolMgrDb:getAllCreditsRecords()
+    local records_list = {}
+    for _, record in pairs(records) do
+      records_list[#records_list+1] = { ref = record.ref, record = record }
+    end
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode(records_list)
+    })
+  end
+)
+
+--- Handler: Info
+-- Description: Returns basic info about the Pool Manager.
+-- Pattern: { Action = "Info" }
+Handlers.add(
+  "Info",
+  Handlers.utils.hasMatchingTag("Action", "Info"),
+  function (msg)
+      Logger.info("Request for Pool Manager info from " .. msg.From)
+      local info = {
+          process_id = ao.id,
+          owner = Owner,
+          apus_token = ApusTokenId,
+          credit_exchange_rate = CreditExchangeRate,
+          -- Add other relevant info
+      }
+      msg.reply({ Data = json.encode(info) })
+  end
+)
+
+
+--- Handler: Transfer-Credits
+-- Description: User  transfer their  credits to a specific pool.
+-- Pattern: { Action = "Transfer-Credits" }
+-- Message Data: { pool_id = "...", amount = "..." }
+Handlers.add(
+  "Transfer-Credits",
+  Handlers.utils.hasMatchingTag("Action", "Transfer-Credits"),
+  function (msg)
+    local sender = msg.Sender
+    local quantity = msg.Tags.Quantity
+    local pool_id = msg.From
+    local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
+    -- Validate pool_id and quantity
+    assert(type(sender) == 'string', 'user is required!')
+    assert(type(quantity) == 'string', 'Quantity is required!')
+    assert(BintUtils.gt(quantity, '0'), 'Quantity must be greater than 0')
+    -- Check if the pool exists
+    if not isValidPool(pool_id) then
+      Logger.error("Allocate-Credits failed: Invalid PoolId " .. pool_id)
+      msg.reply({ Tags = { Code = "400" }, Data = "Invalid PoolId" })
+      return
+    end
+    local pool_balance = Undistributed_Credits[user]
+    Logger.info("Processing credit transfer for " .. sender .. " from pool " .. pool_id .. ", Amount: " .. quantity)
+
+    -- TODO Add records into Database
+    
+    Undistributed_Credits[user] = BintUtils.add(pool_balance, quantity)
+    PoolMgrDb:recordCreditTransaction(ref,sender, "transfer", quantity, pool_id)
+    -- Send confirmation back to Pool
+    msg.reply({ Tags = { Code = "200" }, Data = json.encode({ Credits = Undistributed_Credits[user] }) })
+  end
+)
+
+--- Handler: Add-Credit
+-- Description: User  transfer their  credits to from  specific pool.
+-- Pattern: { Action = "AN-Credit-Notice" }
+
+
+Handlers.add(
+  "Add-Credit",
+  Handlers.utils.hasMatchingTag("Action", "Add-Credit"),
+  function (msg)
+    local user = msg.From
+    local quantity = msg.Tags.Quantity
+    local pool_id = msg.Tags.PoolId
+    local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
+    -- Validate pool_id and quantity
+    assert(type(user) == 'string', 'user is required!')
+    assert(type(quantity) == 'string', 'Quantity is required!')
+    assert(BintUtils.gt(quantity, '0'), 'Quantity must be greater than 0')
+    -- Check if the balance is sufficient
+    local pool_balance = Undistributed_Credits[user]
+    if BintUtils.lt(pool_balance, quantity) then
+      Logger.warn("Add-Credit failed: Insufficient pool balance for pool " .. pool_id .. ". Balance: " .. pool_balance .. ", Requested: " .. quantity)
+      msg.reply({ Tags = { Code = "403", Error = "Insufficient pool balance." }})
+      return
+    end
+    -- Check if the pool exists
+    if not isValidPool(pool_id) then
+      Logger.error("Allocate-Credits failed: Invalid PoolId " .. pool_id)
+      msg.reply({ Tags = { Code = "400" }, Data = "Invalid PoolId" })
+      return
+    end
+    Logger.info("Processing credit transfer for " .. user .. " to pool " .. pool_id .. ", Amount: " .. quantity)
+
+
+    Undistributed_Credits[user] = BintUtils.subtract(pool_balance, quantity)
+    -- Send notification to the target Pool process
+    ao.send({
+        Target = pool_id,
+        Action = "AN-Credit-Notice", -- As defined in Pool LLD
+        From = ao.id, -- Send from this Pool Mgr process
+        User = user,
+        Quantity = quantity
+    })
+
+    PoolMgrDb:recordCreditTransaction(ref,user, "add", quantity, pool_id)
+    -- Send confirmation back to user
+    msg.reply({ Tags = { Code = "200" }, Data = json.encode({ Credits = Undistributed_Credits[user] }) })
+  end
+)
+
+
+-- Initialization flag to prevent re-initialization
+Initialized = Initialized or false
+-- Immediately Invoked Function Expression (IIFE) for initialization logic
+(function()
+  if Initialized == false then
+    Initialized = true
+  else
+    print("Already Initialized. Skip Initialization.")
+    return
+  end
+  print("Initializing ...")
+
+  -- check if the sum is 8% of the total supply
+  local pool1 = createPool("1","Alex",20000,1000,"Today","NextDay")
+  Pools[pool1.pool_id] = pool1
+  assert(next(Pools) ~= nil, "Initiali First pool failed")
+end)()
