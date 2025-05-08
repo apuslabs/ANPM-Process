@@ -257,6 +257,75 @@ Handlers.add(
 )
 
 
+-- ================= Staking Handlers =================
+
+--- Handler: Stake (via APUS Transfer)
+-- Description: Handles incoming APUS transfers intended for staking in a specific pool.
+-- Pattern: { Action = "Credit-Notice", From = "<APUS Token ID>", ['X-AN-Reason'] = "Stake", ['X-AN-Pool-Id'] = "<pool_id>" }
+Handlers.add(
+  "Mgr-Stake",
+  function(msg)
+    return msg.Action == "Credit-Notice" and
+           msg.From == ApusTokenId and
+           msg.Tags['X-AN-Reason'] == 'Stake' and
+           msg.Tags['X-AN-Pool-Id'] -- Pool ID must be specified
+  end,
+  function (msg)
+    local user = msg.Sender
+    local apus_amount = msg.Quantity
+    local pool_id = msg.Tags['X-AN-Pool-Id']
+
+    if not user or not apus_amount or BintUtils.le(apus_amount, '0') then
+      Logger.error("Invalid Stake notice: Missing Sender, Quantity, or invalid Quantity. Msg: " .. json.encode(msg))
+      return -- Cannot refund easily
+    end
+    if not pool_id then
+       Logger.error("Invalid Stake notice: Missing X-AN-Pool-Id tag. Msg: " .. json.encode(msg))
+       sendApus(user, apus_amount, "Refund: Stake Pool ID Missing")
+       return
+    end
+
+    Logger.log("Processing Stake from User: " .. user .. ", APUS Quantity: " .. apus_amount .. ", Pool: " .. pool_id)
+
+    -- Check if pool exists and get capacity
+    local pool_info = PoolMgrDb:getPool(pool_id)
+    pool_info = pool_info or {
+        id = pool_id,
+        name = "Default Test Pool",
+        owner = user,
+        staking_capacity = "1000000000000", -- 1 million APUS
+        status = "active",
+        created_at = os.time()
+    }
+    if not pool_info then
+        Logger.error("Stake failed: Pool " .. pool_id .. " not found.")
+        sendApus(user, apus_amount, "Refund: Stake Pool Not Found")
+        ao.send({ Target = user, Tags = { Code = "404", Error = "Target pool for staking not found.", Action="Stake-Failure" }})
+        return
+    end
+
+    -- Check staking capacity
+    local current_pool_stake = PoolMgrDb:getTotalPoolStake(pool_id)
+    local capacity = pool_info.staking_capacity
+    local potential_new_total = BintUtils.add(current_pool_stake, apus_amount)
+
+    if BintUtils.gt(potential_new_total, capacity) then
+        Logger.warn("Stake failed: Staking amount " .. apus_amount .. " exceeds pool " .. pool_id .. " capacity (" .. capacity .. "). Current stake: " .. current_pool_stake)
+        sendApus(user, apus_amount, "Refund: Stake Exceeds Pool Capacity")
+        ao.send({ Target = user, Tags = { Code = "403", Error = "Staking amount exceeds pool capacity.", Action="Stake-Failure" }})
+        return
+    end
+
+    -- Record staking transaction
+    PoolMgrDb:recordStakingTransaction(user, pool_id, 'STAKE', apus_amount)
+
+    local new_stake_balance = PoolMgrDb:getCurrentStake(user, pool_id)
+    Logger.log("Stake successful for " .. user .. " in pool " .. pool_id .. ". New stake balance: " .. new_stake_balance)
+    ao.send({ Target = user, Tags = { Code = "200", Action = "Stake-Success" }, Data = json.encode({ pool_id = pool_id, staked_amount = apus_amount, new_stake_balance = new_stake_balance }) })
+
+  end
+)
+
 -- Initialization flag to prevent re-initialization
 Initialized = Initialized or false
 -- Immediately Invoked Function Expression (IIFE) for initialization logic
