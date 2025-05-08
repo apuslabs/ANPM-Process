@@ -39,7 +39,7 @@ function prepareBuildFolder() {
   const buildPath = relative(".build");
   fs.ensureDirSync(buildPath);
   fs.emptyDirSync(buildPath);
-  const apusTokenPath = relative("../apus_token");
+  const apusTokenPath = relative("../src");
   fs.copySync(apusTokenPath, buildPath);
   const specPath = relative("");
   fs.readdirSync(specPath).forEach((file) => {

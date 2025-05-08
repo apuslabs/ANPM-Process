@@ -8,7 +8,7 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "node --experimental-wasm-memory64 spec/test.js"
+    "test": "node --experimental-wasm-memory64 tests/test.js"
   },
   "repository": {
     "type": "git",
@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/apuslabs/ANPM-Process#readme",
   "dependencies": {
+    "@permaweb/ao-loader": "^0.0.48",
     "fs-extra": "^11.3.0"
   }
 }

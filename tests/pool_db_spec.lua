@@ -1,5 +1,5 @@
 local luaunit = require('libs.luaunit')
-local PoolDAO = require('src.pool.pool_db')
+local PoolDAO = require('dao.pool_db')
 local sqlite3 = require('lsqlite3')
 
 luaunit.LuaUnit:setOutputType("tap")
