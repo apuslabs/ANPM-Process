@@ -1,7 +1,8 @@
 local sqlite3 = require('lsqlite3')
 local DbAdmin = require('utils.db_admin')
 local Logger = require('utils.log')
-
+local BintUtils = require('utils.bint_utils')
+local json = require('json')
 -- Initialize in-memory SQLite database or reuse existing one
 PoolMgrDb = PoolMgrDb or sqlite3.open_memory()
 
@@ -30,6 +31,7 @@ local function initialize_database(db_admin)
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_wallet_address TEXT NOT NULL,
         pool_id TEXT NOT NULL,
+        transaction_type TEXT NOT NULL, -- 'STAKE', 'UNSTAKE'
         amount TEXT NOT NULL DEFAULT '0', -- bint string
         created_at INTEGER NOT NULL -- Timestamp of the last action affecting eligibility (stake/unstake)
      );
@@ -157,7 +159,7 @@ function PoolMgrDAO:getCurrentStake(user_wallet_address, pool_id)
           if row.transaction_type == 'STAKE' then
               total_staked_for_user_in_pool = BintUtils.add(total_staked_for_user_in_pool, row.amount)
           elseif row.transaction_type == 'UNSTAKE' then
-              total_staked_for_user_in_pool = BintUtils.sub(total_staked_for_user_in_pool, row.amount)
+              total_staked_for_user_in_pool = BintUtils.subtract(total_staked_for_user_in_pool, row.amount)
           end
           -- If there are other transaction_types, they are ignored by this logic.
       end
@@ -180,14 +182,13 @@ function PoolMgrDAO:getTotalUserStake(user_wallet_address)
 
   -- The order of parameters in the table must match the order of '?' in the SQL query.
   local rows = self.dbAdmin:select(sql, { user_wallet_address })
-  
   local total_staked_for_user = '0' -- Initialize as a bint string
   if rows then
       for _, row in ipairs(rows) do
           if row.transaction_type == 'STAKE' then
               total_staked_for_user = BintUtils.add(total_staked_for_user, row.amount)
           elseif row.transaction_type == 'UNSTAKE' then
-              total_staked_for_user = BintUtils.sub(total_staked_for_user, row.amount)
+              total_staked_for_user = BintUtils.subtract(total_staked_for_user, row.amount)
           end
           -- If there are other transaction_types, they are ignored by this logic.
       end
@@ -200,24 +201,26 @@ end
 -- @param pool_id Pool ID.
 -- @return Total staked amount in the pool (bint string).
 function PoolMgrDAO:getTotalPoolStake(pool_id)
-  assert(type(pool_id) == "string", "pool_id must be a string")
+  assert(pool_id == '0' or type(pool_id) == "string", "pool_id must be '0' or a string")
   local sql = [[ 
       SELECT transaction_type, amount 
       FROM user_staking_transactions 
       WHERE pool_id = ?; 
   ]]
-  local rows = self.dbAdmin:select(sql, { pool_id })
+  local results = self.dbAdmin:select(sql, { pool_id })
+  Logger.info('getTotalPoolStake results: ' .. json.encode(results))
   local total = '0'
-  if rows then
-      for _, row in ipairs(rows) do
+  if results then
+      for _, row in ipairs(results) do
           if row.transaction_type == 'STAKE' then
               total = BintUtils.add(total, row.amount)
           elseif row.transaction_type == 'UNSTAKE' then
-              total = BintUtils.sub(total, row.amount)
+              total = BintUtils.subtract(total, row.amount)
           end
       end
   end
   return total
+
 end
 
 return PoolMgrDAO
