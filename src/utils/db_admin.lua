@@ -35,19 +35,26 @@ function dbAdmin:exec(sql)
 end
 
 -- Function to apply SQL INSERT, UPDATE, and DELETE statements with parameter binding
+-- Returns ok (boolean) and error message (string) if failed
 function dbAdmin:apply(sql, values)
     local DONE = require('lsqlite3').DONE
     assert(type(sql) == 'string', 'SQL MUST be a String')
     assert(type(values) == 'table', 'values MUST be an array of values')
-    
     local stmt = self.db:prepare(sql)
-    stmt:bind_values(table.unpack(values))
-    
-    if stmt:step() ~= DONE then
-        error(sql .. ' statement failed because ' .. self.db:errmsg())
+    if not stmt then
+        return false, "Failed to prepare statement: " .. self.db:errmsg()
     end
     
+    stmt:bind_values(table.unpack(values))
+    
+    local result = stmt:step()
     stmt:finalize()
+    
+    if result ~= DONE then
+        return false, "Statement failed: " .. self.db:errmsg()
+    end
+    
+    return true, nil
 end
 
 -- Function to apply SQL SELECT statements with parameter binding

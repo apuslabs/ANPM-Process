@@ -275,8 +275,8 @@ local function sendApus(recipient, amount, reason)
 end
 
 Handlers.add(
-  "Buy-Apus",
-  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Buy-Apus") end,
+  "Mgr-Stake",
+  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Stake") end,
   function (msg)
 
     local pool_id = msg.Tags["X-AN-Pool-Id"]
@@ -287,15 +287,7 @@ Handlers.add(
     assert(pool_id, 'Missing X-AN-Pool-Id')
     -- Check if pool exists and get capacity
     --local pool_info = PoolMgrDb:getPool(pool_id) // ToDO:
-    local pool_info = nil
-    pool_info = {
-        id = pool_id,
-        name = "Default Test Pool",
-        owner = user,
-        staking_capacity = "1000000000000", -- 1 million APUS
-        status = "active",
-        created_at = os.time()
-    }
+    local pool_info = Pools[pool_id]
     if not pool_info then
         Logger.error("Stake failed: Pool " .. pool_id .. " not found.")
         ao.send({ Target = user, Tags = { Code = "404", Error = "Target pool for staking not found.", Action="Stake-Failure" }})
@@ -327,73 +319,6 @@ Handlers.add(
   end
 )
 
---- Handler: Stake (via APUS Transfer)
--- Description: Handles incoming APUS transfers intended for staking in a specific pool.
--- Pattern: { Action = "Credit-Notice", From = "<APUS Token ID>", ['X-AN-Reason'] = "Stake", ['X-AN-Pool-Id'] = "<pool_id>" }
---function(msg) return (msg.Action == "Credit-Notice") and (msg.From == ApusTokenId) and (msg.Tags['X-AN-Reason'] == 'Stake') end,
--- Handlers.add(
---   "Mgr-Stake",
---   function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Stake") end,
---   function (msg)
---     local user = msg.Sender
---     local apus_amount = msg.Quantity
---     local pool_id = msg.Tags["Pool-Id"]
-
---     if not pool_id then
---        Logger.error("Invalid Stake notice: Missing X-AN-Pool-Id tag. Msg: " .. json.encode(msg))
---        sendApus(user, apus_amount, "Refund: Stake Pool ID Missing")
---        return
---     end
-
---     Logger.log("Processing Stake from User: " .. user .. ", APUS Quantity: " .. apus_amount .. ", Pool: " .. pool_id)
-
---     -- Check if pool exists and get capacity
---     local pool_info = PoolMgrDb:getPool(pool_id)
---     pool_info = pool_info or {
---         id = pool_id,
---         name = "Default Test Pool",
---         owner = user,
---         staking_capacity = "1000000000000", -- 1 million APUS
---         status = "active",
---         created_at = os.time()
---     }
---     if not pool_info then
---         Logger.error("Stake failed: Pool " .. pool_id .. " not found.")
---         sendApus(user, apus_amount, "Refund: Stake Pool Not Found")
---         ao.send({ Target = user, Tags = { Code = "404", Error = "Target pool for staking not found.", Action="Stake-Failure" }})
---         return
---     end
-
---     -- Check staking capacity
---     local current_pool_stake = PoolMgrDb:getTotalPoolStake(pool_id)
---     local capacity = pool_info.staking_capacity
---     local potential_new_total = BintUtils.add(current_pool_stake, apus_amount)
-
---     if BintUtils.gt(potential_new_total, capacity) then
---         Logger.warn("Stake failed: Staking amount " .. apus_amount .. " exceeds pool " .. pool_id .. " capacity (" .. capacity .. "). Current stake: " .. current_pool_stake)
---         sendApus(user, apus_amount, "Refund: Stake Exceeds Pool Capacity")
---         ao.send({ Target = user, Tags = { Code = "403", Error = "Staking amount exceeds pool capacity.", Action="Stake-Failure" }})
---         return
---     end
-
---     -- Record staking transaction
---     PoolMgrDb:recordStakingTransaction(user, pool_id, 'STAKE', apus_amount)
-
---     local new_stake_balance = PoolMgrDb:getCurrentStake(user, pool_id)
---     Logger.log("Stake successful for " .. user .. " in pool " .. pool_id .. ". New stake balance: " .. new_stake_balance)
---     ao.send({ Target = user, Tags = { Code = "200", Action = "Stake-Success" }, Data = json.encode({ pool_id = pool_id, staked_amount = apus_amount, new_stake_balance = new_stake_balance }) })
---     msg.reply({
---       Tags = { Code = "200" }
---     })
-
---   end
--- )
-
---- Handler: UnStake
--- Description: Allows a user to unstake APUS from a pool. Sends APUS back to the user.
--- Pattern: { Action = "UnStake" }
--- Message Data: { pool_id = "...", amount = "..." }
-
 Handlers.add(
   "Mgr-UnStake",
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
@@ -416,15 +341,7 @@ Handlers.add(
 
      -- Check if pool exists (sanity check)
     --local pool_info = PoolMgrDb:getPool(pool_id)
-    local pool_info = nil
-    pool_info = {
-        id = pool_id,
-        name = "Default Test Pool",
-        owner = user,
-        staking_capacity = "1000000000000", -- 1 million APUS
-        status = "active",
-        created_at = os.time()
-    }
+    local pool_info = Pools[pool_id]
     if not pool_info then
         Logger.error("UnStake failed: Pool " .. pool_id .. " not found.")
         msg.reply({Tags = { Code = "404", Error = "Target pool for unstaking not found.", Action="UnStake-Failure" }})
@@ -504,7 +421,7 @@ Handlers.add(
     end
     
     -- Check if pool exists
-    local pool_info = PoolMgrDb:getPool(pool_id)
+    local pool_info = Pools[pool_id]
     if not pool_info then
       Logger.error("Get-Pool-Staking failed: Pool " .. pool_id .. " not found.")
       msg.reply({Tags = { Code = "404", Error = "Pool not found.", Action="Get-Pool-Staking-Failure" }})
@@ -532,24 +449,14 @@ Handlers.add(
 Handlers.add(
   "Mgr-Get-All-Staking",
   Handlers.utils.hasMatchingTag("Action", "Get-All-Staking"),
-  function (msg)
-    -- Permission Check
-    if msg.From ~= Owner then
-      Logger.warn("Get-All-Staking denied: Sender " .. msg.From .. " is not the owner.")
-      msg.reply({Tags = { Code = "403"}, Data = "Unauthorized"})
-      return
-    end
-    
+  function (msg) 
     -- Get all staking transactions
-    local sql = "SELECT * FROM user_staking_transactions ORDER BY created_at ASC;"
-    local records = PoolMgrDb.dbAdmin:select(sql)
-    
+    local records = PoolMgrDb:getAllStakeRecords()
     if not records then
       records = {}
     end
     
     Logger.info("Get-All-Staking: Returning " .. #records .. " staking records")
-    
     msg.reply({
       Tags = { Code = "200", Action = "Get-All-Staking-Success" },
       Data = json.encode(records)
@@ -573,6 +480,8 @@ Initialized = Initialized or false
 
   -- check if the sum is 8% of the total supply
   local pool1 = createPool("1","Alex",20000,1000,"Today","NextDay")
+  local pool2 = createPool("100","Jason",100000,1000,"Today","NextDay")
   Pools[pool1.pool_id] = pool1
+  Pools[pool2.pool_id] = pool2
   assert(next(Pools) ~= nil, "Initiali First pool failed")
 end)()
