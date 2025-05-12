@@ -8,7 +8,8 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "node --experimental-wasm-memory64 tests/test.js"
+    "test": "node --experimental-wasm-memory64 tests/test.js",
+    "init": "git submodule update --init --recursive && cd vendor/aos && npm install && cd ../.."
   },
   "repository": {
     "type": "git",
