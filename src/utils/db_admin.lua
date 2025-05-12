@@ -83,4 +83,61 @@ function dbAdmin:select(sql, values)
    return results
 end
 
+-------------------------------------------------------------------
+-- Transaction Management Methods
+-------------------------------------------------------------------
+
+--[[
+  Begins a new database transaction.
+  @return boolean success: True if the transaction started successfully, false otherwise.
+  @return string|nil errMsg: An error message if success is false.
+--]]
+function dbAdmin:begin_transaction()
+    -- 'BEGIN TRANSACTION;' or 'BEGIN;' are both valid.
+    -- lsqlite3's db:exec() returns sqlite3.OK (0) on success for non-SELECT statements.
+    local sqlite3 = require('lsqlite3')
+    local rc = self.db:exec('BEGIN TRANSACTION;')
+    if rc ~= sqlite3.OK then
+        local errMsg = "Failed to begin transaction: " .. self.db:errmsg()
+        return false, errMsg
+    end
+    print("Transaction begin")
+    return true, nil
+end
+
+--[[
+  Commits the current database transaction.
+  @return boolean success: True if the transaction committed successfully, false otherwise.
+  @return string|nil errMsg: An error message if success is false.
+--]]
+function dbAdmin:commit_transaction()
+    local sqlite3 = require('lsqlite3')
+    local rc = self.db:exec('COMMIT;')
+    if rc ~= sqlite3.OK then
+        local errMsg = "Failed to commit transaction: " .. self.db:errmsg()
+        print(errMsg)
+        return false, errMsg
+    end
+    print("Transaction committed.")
+    return true, nil
+end
+
+--[[
+  Rolls back the current database transaction.
+  @return boolean success: True if the transaction rolled back successfully, false otherwise.
+  @return string|nil errMsg: An error message if success is false.
+--]]
+function dbAdmin:rollback_transaction()
+    local sqlite3 = require('lsqlite3')
+    local rc = self.db:exec('ROLLBACK;')
+    if rc ~= sqlite3.OK then
+        local errMsg = "Failed to rollback transaction: " .. self.db:errmsg()
+        print(errMsg)
+        return false, errMsg
+    end
+    print("Transaction rolled back.")
+    return true, nil
+end
+
+
 return dbAdmin
