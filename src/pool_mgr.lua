@@ -11,7 +11,7 @@ CreditExchangeRate = CreditExchangeRate or Config.CreditExchangeRate
 
 
 -- Constants from Config
-local ApusTokenId = Config.ApusTokenId
+ApusTokenId =  ApusTokenId or Config.ApusTokenId
 -- Create Pool Template 
 local PoolTemplate = {
   pool_id = nil,
@@ -35,7 +35,7 @@ local function createPool(pool_id, creator, staking_capacity,rewards_amount,crea
   return PoolTemplate
 end
 
-Logger.info('Pool Manager Process  Started. Owner999')
+Logger.info('Pool Manager Process  Started. Owner10')
 
 -- Credits handlers
 Handlers.add(
@@ -223,7 +223,7 @@ Handlers.add(
   function (msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags["X-PoolId"]
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     -- Validate pool_id and quantity
     assert(type(user) == 'string', 'user is required!')
@@ -283,22 +283,20 @@ Handlers.add(
   function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Stake") end,
   function (msg)
 
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags["X-PoolId"]
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
-    Logger.info("Processing Stake from User: " .. user .. ", APUS Quantity: " .. apus_amount .. ", Pool: " .. pool_id)
 
-    assert(pool_id, 'Missing X-AN-Pool-Id')
+
+    assert(type(pool_id) == 'string', 'Missing X-PoolId')
     -- Check if pool exists and get capacity
     local pool = Pools[pool_id]
     if not pool then
         Logger.error("Stake failed: Pool " .. pool_id .. " not found.")
         ao.send({ Target = user, Tags = { Code = "404", Error = "Target pool for staking not found.", Action="Stake-Failure" }})
-        -- Todo Send APUS back   
         return
     end
-
-    Logger.info("Pool Info: " .. json.encode(pool))
+    Logger.info("Processing Stake from User: " .. user .. ", APUS Quantity: " .. apus_amount .. ", Pool: " .. pool_id)
 
     -- Check staking capacity
     local current_pool_stake = Pools[pool_id].cur_staking
@@ -316,8 +314,11 @@ Handlers.add(
     
     -- Add pool cur_staking
     Pools[pool_id].cur_staking = potential_new_total
-
+    Logger.info("here " .. current_pool_stake)
     -- Add user staking amount
+    if Stakers[user] == nil then
+      Stakers[user] = {}
+    end
     Stakers[user][pool_id] = BintUtils.add(Stakers[user][pool_id] or '0',apus_amount)
     -- Record staking transaction
     PoolMgrDb:recordStakingTransaction(user, pool_id, 'STAKE', apus_amount)
@@ -333,7 +334,7 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
   function (msg)
     local user = msg.From
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags["X-PoolId"]
     local amount_to_unstake = msg.Tags.Quantity
     local pool = Pools[pool_id]
     -- Validate input
@@ -351,19 +352,17 @@ Handlers.add(
 
 
     -- Check user's staked balance in that pool
-    local current_stake = Stakers[user][pool_id]
+    local current_stake = Stakers[user][pool_id] or '0'
     if not current_stake or BintUtils.lt(current_stake, amount_to_unstake) then
         Logger.warn("UnStake failed: Insufficient staked balance for user " .. user .. " in pool " .. pool_id .. ". Staked: " .. current_stake .. ", Requested: " .. amount_to_unstake)
         msg.reply({ Tags = { Code = "403", Error = "Insufficient staked balance.", Action="UnStake-Failure" }})
         return
     end
-
-    Logger.info("Processing UnStake for " .. user .. " from pool " .. pool_id .. ", Amount: " .. amount_to_unstake)
-
     -- update pool stake amount
-    Pools[pool_id].cur_staking = BintUtils.subtract(Pools[pool_id] or '0' ,amount_to_unstake)
-
+    Pools[pool_id].cur_staking = BintUtils.subtract(Pools[pool_id].cur_staking ,amount_to_unstake)
+    Logger.info("here Alex " .. user .. " from pool " .. pool_id .. ", Amount: " .. amount_to_unstake)
     -- update User stake amount
+    
     Stakers[user][pool_id] = BintUtils.subtract(Stakers[user][pool_id], amount_to_unstake)
 
     -- Record unstaking transaction (updates current_stakes)
@@ -383,7 +382,7 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "Get-Staking"),
   function (msg)
     local user = msg.From
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags["X-PoolId"]
     
     -- Validate input
     if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
@@ -414,7 +413,7 @@ Handlers.add(
   "Mgr-Get-Pool-Staking",
   Handlers.utils.hasMatchingTag("Action", "Get-Pool-Staking"),
   function (msg)
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags["X-PoolId"]
     local pool = Pools[pool_id]
     -- Validate input
     if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
