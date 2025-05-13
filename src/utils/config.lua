@@ -7,6 +7,11 @@ M.Owner = "YOUR_POOL_OWNER_ARWEAVE_ADDRESS"
 -- Replace with the actual Pool Manager Process ID during deployment/spawn
 M.PoolMgrProcessId = "YOUR_POOL_MANAGER_PROCESS_ID"
 
+-- CreditExchangeRate
+M.CreditExchangeRate = 1
+
+-- APUS TOken Process
+M.ApusTokenId = "YOUR_APUS_TOKEN_PROCESS_ID"
 -- Cost per AI task in credits (as a string for bint_utils)
 M.TaskCost = "1"
 

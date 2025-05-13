@@ -1,25 +1,30 @@
 local BintUtils = require('utils.bint_utils')
 local json = require('json')
 local Logger = require('utils.log')
-local PoolMgrDb = require('dao.pool_mgr_db').new() -- Initialize DAL
+local PoolMgrDb = require('dao.pool_mgr_db').new() 
+local Config = require('utils.config')
+
 Undistributed_Credits = Undistributed_Credits or {}
 Pools = Pools or {}
-CreditExchangeRate = 1
-ApusTokenId = ApusTokenId or "1uES191BAwwSaTBviqtexLpDhRu_zBc0ewHL2gIA1yo"
---Owner = "aK2fFFBJ1Hilzg_3yeoJuFywZJ8JJXhxMVC3WjBmPkE"
+Stakers = Stakers or {}
+CreditExchangeRate = CreditExchangeRate or Config.CreditExchangeRate
+
+
 -- Constants from Config
-LogLevel = LogLevel or 'info'
-
-
+local ApusTokenId = Config.ApusTokenId
+-- Create Pool Template 
 local PoolTemplate = {
   pool_id = nil,
   creator = nil,
   staking_capacity = 0,
   rewards_amount = 0,
   created_at = nil,
-  started_at = nil
+  started_at = nil,
+  cur_staking = '0'
 }
-
+local function isValidPool(poolId)
+  return Pools[poolId] ~= nil
+end
 local function createPool(pool_id, creator, staking_capacity,rewards_amount,created_at,started_at)
   PoolTemplate.pool_id = pool_id
   PoolTemplate.creator = creator
@@ -32,6 +37,7 @@ end
 
 Logger.info('Pool Manager Process  Started. Owner999')
 
+-- Credits handlers
 Handlers.add(
   "Buy-Credit",
   function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Buy-Credit") end,
@@ -54,9 +60,7 @@ Handlers.add(
     })
   end
 )
-local function isValidPool(poolId)
-  return Pools[poolId] ~= nil
-end
+
 Handlers.add(
   "Get-Undistributed-Credits",
   Handlers.utils.hasMatchingTag("Action", "Get-Undistributed-Credits"),
@@ -286,20 +290,20 @@ Handlers.add(
 
     assert(pool_id, 'Missing X-AN-Pool-Id')
     -- Check if pool exists and get capacity
-    --local pool_info = PoolMgrDb:getPool(pool_id) // ToDO:
-    local pool_info = Pools[pool_id]
-    if not pool_info then
+    local pool = Pools[pool_id]
+    if not pool then
         Logger.error("Stake failed: Pool " .. pool_id .. " not found.")
         ao.send({ Target = user, Tags = { Code = "404", Error = "Target pool for staking not found.", Action="Stake-Failure" }})
+        -- Send APUS back
         return
     end
 
-    Logger.info("Pool Info: " .. json.encode(pool_info))
+    Logger.info("Pool Info: " .. json.encode(pool))
 
     -- Check staking capacity
     local current_pool_stake = PoolMgrDb:getTotalPoolStake(pool_id)
     Logger.info("Current Pool Stake: " .. current_pool_stake)
-    local capacity = pool_info.staking_capacity
+    local capacity = pool.staking_capacity
     local potential_new_total = BintUtils.add(current_pool_stake, apus_amount)
 
 
@@ -340,9 +344,9 @@ Handlers.add(
     end
 
      -- Check if pool exists (sanity check)
-    --local pool_info = PoolMgrDb:getPool(pool_id)
-    local pool_info = Pools[pool_id]
-    if not pool_info then
+    --local pool = PoolMgrDb:getPool(pool_id)
+    local pool = Pools[pool_id]
+    if not pool then
         Logger.error("UnStake failed: Pool " .. pool_id .. " not found.")
         msg.reply({Tags = { Code = "404", Error = "Target pool for unstaking not found.", Action="UnStake-Failure" }})
         return
@@ -421,8 +425,8 @@ Handlers.add(
     end
     
     -- Check if pool exists
-    local pool_info = Pools[pool_id]
-    if not pool_info then
+    local pool = Pools[pool_id]
+    if not pool then
       Logger.error("Get-Pool-Staking failed: Pool " .. pool_id .. " not found.")
       msg.reply({Tags = { Code = "404", Error = "Pool not found.", Action="Get-Pool-Staking-Failure" }})
       return
@@ -437,7 +441,7 @@ Handlers.add(
       Data = json.encode({ 
         pool_id = pool_id, 
         total_stake = total_pool_stake,
-        capacity = pool_info.staking_capacity
+        capacity = pool.staking_capacity
       })
     })
   end
@@ -478,7 +482,6 @@ Initialized = Initialized or false
   end
   print("Initializing ...")
 
-  -- check if the sum is 8% of the total supply
   local pool1 = createPool("1","Alex",20000,1000,"Today","NextDay")
   local pool2 = createPool("100","Jason",100000,1000,"Today","NextDay")
   Pools[pool1.pool_id] = pool1
