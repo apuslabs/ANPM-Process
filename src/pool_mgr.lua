@@ -179,7 +179,7 @@ Handlers.add(
 
 
 --- Handler: Transfer-Credits
--- Description: User  transfer their  credits to a specific pool.
+-- Description: User  transfer their  credits from a specific pool.
 -- Pattern: { Action = "Transfer-Credits" }
 -- Message Data: { pool_id = "...", amount = "..." }
 Handlers.add(
@@ -200,7 +200,7 @@ Handlers.add(
       msg.reply({ Tags = { Code = "400" }, Data = "Invalid PoolId" })
       return
     end
-    local pool_balance = Undistributed_Credits[user]
+    local pool_balance = Undistributed_Credits[user] or '0'
     Logger.info("Processing credit transfer for " .. sender .. " from pool " .. pool_id .. ", Amount: " .. quantity)
 
     -- TODO Add records into Database
@@ -213,7 +213,7 @@ Handlers.add(
 )
 
 --- Handler: Add-Credit
--- Description: User  transfer their  credits to from  specific pool.
+-- Description: User  transfer their  credits to  a specific pool.
 -- Pattern: { Action = "AN-Credit-Notice" }
 
 
@@ -283,7 +283,7 @@ Handlers.add(
   function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Stake") end,
   function (msg)
 
-    local pool_id = msg.Tags["X-AN-Pool-Id"]
+    local pool_id = msg.Tags.PoolId
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
     Logger.info("Processing Stake from User: " .. user .. ", APUS Quantity: " .. apus_amount .. ", Pool: " .. pool_id)
@@ -294,14 +294,14 @@ Handlers.add(
     if not pool then
         Logger.error("Stake failed: Pool " .. pool_id .. " not found.")
         ao.send({ Target = user, Tags = { Code = "404", Error = "Target pool for staking not found.", Action="Stake-Failure" }})
-        -- Send APUS back
+        -- Todo Send APUS back   
         return
     end
 
     Logger.info("Pool Info: " .. json.encode(pool))
 
     -- Check staking capacity
-    local current_pool_stake = PoolMgrDb:getTotalPoolStake(pool_id)
+    local current_pool_stake = Pools[pool_id].cur_staking
     Logger.info("Current Pool Stake: " .. current_pool_stake)
     local capacity = pool.staking_capacity
     local potential_new_total = BintUtils.add(current_pool_stake, apus_amount)
@@ -314,10 +314,15 @@ Handlers.add(
         return
     end
     
+    -- Add pool cur_staking
+    Pools[pool_id].cur_staking = potential_new_total
+
+    -- Add user staking amount
+    Stakers[user][pool_id] = BintUtils.add(Stakers[user][pool_id] or '0',apus_amount)
     -- Record staking transaction
     PoolMgrDb:recordStakingTransaction(user, pool_id, 'STAKE', apus_amount)
 
-    local new_stake_balance = PoolMgrDb:getCurrentStake(user, pool_id)
+    local new_stake_balance = Stakers[user][pool_id]
     Logger.info("Stake successful for " .. user .. " in pool " .. pool_id .. ". New stake balance: " .. new_stake_balance)
     ao.send({ Target = user, Tags = { Code = "200", Action = "Stake-Success" }, Data = json.encode({ pool_id = pool_id, staked_amount = apus_amount, new_stake_balance = new_stake_balance }) })
   end
@@ -328,11 +333,11 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
   function (msg)
     local user = msg.From
-    local pool_id = msg.Data.pool_id
-    local amount_to_unstake = msg.Data.amount
-
+    local pool_id = msg.Tags.PoolId
+    local amount_to_unstake = msg.Tags.Quantity
+    local pool = Pools[pool_id]
     -- Validate input
-    if not pool_id or type(pool_id) ~= "string" or pool_id == "" then
+    if not pool_id or type(pool_id) ~= "string" or not pool then
        Logger.error("UnStake failed: Invalid pool_id from " .. user)
        msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided.", Action="UnStake-Failure" }})
        return
@@ -343,18 +348,11 @@ Handlers.add(
        return
     end
 
-     -- Check if pool exists (sanity check)
-    --local pool = PoolMgrDb:getPool(pool_id)
-    local pool = Pools[pool_id]
-    if not pool then
-        Logger.error("UnStake failed: Pool " .. pool_id .. " not found.")
-        msg.reply({Tags = { Code = "404", Error = "Target pool for unstaking not found.", Action="UnStake-Failure" }})
-        return
-    end
+
 
     -- Check user's staked balance in that pool
-    local current_stake = PoolMgrDb:getCurrentStake(user, pool_id)
-    if BintUtils.lt(current_stake, amount_to_unstake) then
+    local current_stake = Stakers[user][pool_id]
+    if not current_stake or BintUtils.lt(current_stake, amount_to_unstake) then
         Logger.warn("UnStake failed: Insufficient staked balance for user " .. user .. " in pool " .. pool_id .. ". Staked: " .. current_stake .. ", Requested: " .. amount_to_unstake)
         msg.reply({ Tags = { Code = "403", Error = "Insufficient staked balance.", Action="UnStake-Failure" }})
         return
@@ -362,9 +360,15 @@ Handlers.add(
 
     Logger.info("Processing UnStake for " .. user .. " from pool " .. pool_id .. ", Amount: " .. amount_to_unstake)
 
+    -- update pool stake amount
+    Pools[pool_id].cur_staking = BintUtils.subtract(Pools[pool_id] or '0' ,amount_to_unstake)
+
+    -- update User stake amount
+    Stakers[user][pool_id] = BintUtils.subtract(Stakers[user][pool_id], amount_to_unstake)
+
     -- Record unstaking transaction (updates current_stakes)
     PoolMgrDb:recordStakingTransaction(user, pool_id, 'UNSTAKE', amount_to_unstake)
-    local new_stake_balance = PoolMgrDb:getCurrentStake(user, pool_id)
+    local new_stake_balance = Stakers[user][pool_id]
     Logger.info("UnStake successful for " .. user .. " from pool " .. pool_id .. ". APUS sent. New stake balance: " .. new_stake_balance)
     msg.reply({ Tags = { Code = "200", Action = "UnStake-Success" }, Data = json.encode({ pool_id = pool_id, unstaked_amount = amount_to_unstake, new_stake_balance = new_stake_balance }) })
   end
@@ -379,10 +383,10 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "Get-Staking"),
   function (msg)
     local user = msg.From
-    local pool_id = msg.Data.pool_id
+    local pool_id = msg.Tags.PoolId
     
     -- Validate input
-    if not pool_id or type(pool_id) ~= "string" or pool_id == "" then
+    if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
       Logger.error("Get-Staking failed: Invalid pool_id from " .. user)
       msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided."}})
       return
@@ -390,18 +394,13 @@ Handlers.add(
     
 
     -- Get user's staked balance in the specified pool
-    local current_stake = PoolMgrDb:getCurrentStake(user, pool_id)
-    Logger.info("Get-Staking: User " .. user .. " has " .. current_stake .. " staked in pool " .. pool_id)
-    
-    -- Get user's total staked balance across all pools
-    local total_stake = PoolMgrDb:getTotalUserStake(user)
+    local current_stake = Stakers[user][pool_id] or '0'
     
     msg.reply({ 
       Tags = { Code = "200"}, 
       Data = json.encode({ 
         pool_id = pool_id, 
         current_stake = current_stake,
-        total_stake = total_stake
       })
     })
   end
@@ -415,25 +414,17 @@ Handlers.add(
   "Mgr-Get-Pool-Staking",
   Handlers.utils.hasMatchingTag("Action", "Get-Pool-Staking"),
   function (msg)
-    local pool_id = msg.Data.pool_id
-    
+    local pool_id = msg.Tags.PoolId
+    local pool = Pools[pool_id]
     -- Validate input
-    if not pool_id or type(pool_id) ~= "string" or pool_id == "" then
+    if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
       Logger.error("Get-Pool-Staking failed: Invalid pool_id from " .. msg.From)
       msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided.", Action="Get-Pool-Staking-Failure" }})
       return
     end
     
-    -- Check if pool exists
-    local pool = Pools[pool_id]
-    if not pool then
-      Logger.error("Get-Pool-Staking failed: Pool " .. pool_id .. " not found.")
-      msg.reply({Tags = { Code = "404", Error = "Pool not found.", Action="Get-Pool-Staking-Failure" }})
-      return
-    end
-    
     -- Get total staked amount in the pool
-    local total_pool_stake = PoolMgrDb:getTotalPoolStake(pool_id)
+    local total_pool_stake = pool.cur_staking or '0'
     Logger.info("Get-Pool-Staking: Total staked in pool " .. pool_id .. " is " .. total_pool_stake)
     
     msg.reply({ 
