@@ -13,26 +13,20 @@ CreditExchangeRate = CreditExchangeRate or Config.CreditExchangeRate
 -- Constants from Config
 ApusTokenId =  ApusTokenId or Config.ApusTokenId
 -- Create Pool Template 
-local PoolTemplate = {
-  pool_id = nil,
-  creator = nil,
-  staking_capacity = 0,
-  rewards_amount = 0,
-  created_at = nil,
-  started_at = nil,
-  cur_staking = '0'
-}
+
 local function isValidPool(poolId)
   return Pools[poolId] ~= nil
 end
 local function createPool(pool_id, creator, staking_capacity,rewards_amount,created_at,started_at)
-  PoolTemplate.pool_id = pool_id
-  PoolTemplate.creator = creator
-  PoolTemplate.staking_capacity = staking_capacity
-  PoolTemplate.rewards_amount = rewards_amount
-  PoolTemplate.created_at = created_at
-  PoolTemplate.started_at = started_at
-  return PoolTemplate
+  return {
+    pool_id = pool_id,
+    creator = creator,
+    staking_capacity = staking_capacity,
+    rewards_amount = rewards_amount,
+    created_at = created_at,
+    started_at = started_at,
+    cur_staking = '0'
+  }
 end
 
 Logger.info('Pool Manager Process  Started. Owner10')
@@ -180,18 +174,18 @@ Handlers.add(
 
 --- Handler: Transfer-Credits
 -- Description: User  transfer their  credits from a specific pool.
--- Pattern: { Action = "Transfer-Credits" }
--- Message Data: { pool_id = "...", amount = "..." }
+-- Pattern: { Action = "AN-Credit-Notice" }
+-- Message Data: { User = "...", Quantity = "..." }
 Handlers.add(
   "Transfer-Credits",
-  Handlers.utils.hasMatchingTag("Action", "Transfer-Credits"),
+  Handlers.utils.hasMatchingTag("Action", "AN-Credit-Notice"),
   function (msg)
-    local sender = msg.Sender
+    local user = msg.Tags.User
     local quantity = msg.Tags.Quantity
     local pool_id = msg.From
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     -- Validate pool_id and quantity
-    assert(type(sender) == 'string', 'user is required!')
+    assert(type(user) == 'string', 'user is required!')
     assert(type(quantity) == 'string', 'Quantity is required!')
     assert(BintUtils.gt(quantity, '0'), 'Quantity must be greater than 0')
     -- Check if the pool exists
@@ -201,14 +195,13 @@ Handlers.add(
       return
     end
     local pool_balance = Undistributed_Credits[user] or '0'
-    Logger.info("Processing credit transfer for " .. sender .. " from pool " .. pool_id .. ", Amount: " .. quantity)
+    Logger.info("Processing credit transfer for " .. user .. " from pool " .. pool_id .. ", Amount: " .. quantity)
 
-    -- TODO Add records into Database
     
     Undistributed_Credits[user] = BintUtils.add(pool_balance, quantity)
-    PoolMgrDb:recordCreditTransaction(ref,sender, "transfer", quantity, pool_id)
+    PoolMgrDb:recordCreditTransaction(ref,user, "transfer", quantity, pool_id)
     -- Send confirmation back to Pool
-    msg.reply({ Tags = { Code = "200" }, Data = json.encode({ Credits = Undistributed_Credits[user] }) })
+    msg.reply({ Tags = { Code = "200" } })
   end
 )
 
@@ -289,6 +282,7 @@ Handlers.add(
 
 
     assert(type(pool_id) == 'string', 'Missing X-PoolId')
+    assert(msg.From == ApusTokenId, 'Invalid Token')
     -- Check if pool exists and get capacity
     local pool = Pools[pool_id]
     if not pool then
@@ -360,11 +354,12 @@ Handlers.add(
     end
     -- update pool stake amount
     Pools[pool_id].cur_staking = BintUtils.subtract(Pools[pool_id].cur_staking ,amount_to_unstake)
-    Logger.info("here Alex " .. user .. " from pool " .. pool_id .. ", Amount: " .. amount_to_unstake)
+    
     -- update User stake amount
     
     Stakers[user][pool_id] = BintUtils.subtract(Stakers[user][pool_id], amount_to_unstake)
-
+    -- send apus back
+    sendApus(user, amount_to_unstake, "UnStake APUS")
     -- Record unstaking transaction (updates current_stakes)
     PoolMgrDb:recordStakingTransaction(user, pool_id, 'UNSTAKE', amount_to_unstake)
     local new_stake_balance = Stakers[user][pool_id]
