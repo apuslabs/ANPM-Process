@@ -95,7 +95,7 @@ Handlers.add(
   "Get-Credit-Balance",
   { Action = "Credit-Balance" },
   function(msg)
-    local user = msg.From or msg.Tags.Recipient
+    local user = msg.Tags.Recipient or msg.From
     msg.reply({
       Tags = { Code = "200" },
       Data = JSON.encode({ user = user, balance = BintUtils.toBalanceValue(Credits[user] or '0') })
