@@ -47,7 +47,7 @@ Handlers.add(
       {
         Target = user,
         Tags = { Code = "200", Action = "Credit-Added" },
-        Data = JSON.encode({ User = user, NewBalance = Credits[user] })
+        Data = JSON.encode({ user = user, balance = Credits[user] })
       }
     )
   end
@@ -95,10 +95,10 @@ Handlers.add(
   "Get-Credit-Balance",
   { Action = "Credit-Balance" },
   function(msg)
-    local user = msg.From
+    local user = msg.From or msg.Tags.Recipient
     msg.reply({
       Tags = { Code = "200" },
-      Data = JSON.encode({ User = user, Balance = BintUtils.toBalanceValue(Credits[user] or '0') })
+      Data = JSON.encode({ user = user, balance = BintUtils.toBalanceValue(Credits[user] or '0') })
     })
   end
 )
