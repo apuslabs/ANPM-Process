@@ -59,7 +59,7 @@ Handlers.add(
   "Get-Undistributed-Credits",
   Handlers.utils.hasMatchingTag("Action", "Get-Undistributed-Credits"),
   function(msg)
-    local user = msg.From
+    local user = msg.From or msg.Tags.Recipient
     msg.reply({
       Tags = { Code = "200" },
       Data = json.encode({ User = user, Balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
@@ -376,7 +376,7 @@ Handlers.add(
   "Mgr-Get-Staking",
   Handlers.utils.hasMatchingTag("Action", "Get-Staking"),
   function (msg)
-    local user = msg.From
+    local user = msg.From or msg.Tags.Recipient
     local pool_id = msg.Tags["X-PoolId"]
     
     -- Validate input
