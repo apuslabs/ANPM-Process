@@ -12,7 +12,7 @@ CreditExchangeRate = CreditExchangeRate or Config.CreditExchangeRate
 
 -- Constants from Config
 ApusTokenId =  ApusTokenId or Config.ApusTokenId
--- Create Pool Template 
+
 
 local function isValidPool(poolId)
   return Pools[poolId] ~= nil
@@ -25,11 +25,22 @@ local function createPool(pool_id, creator, staking_capacity,rewards_amount,crea
     rewards_amount = rewards_amount,
     created_at = created_at,
     started_at = started_at,
-    cur_staking = '0'
+    cur_staking = '0',
+    apr = 0.05
   }
 end
-
-Logger.info('Pool Manager Process  Started. Owner10')
+function UpdatePool(pool_id,rewards_amount)
+  local pool = Pools[pool_id]
+  if pool then
+    if rewards_amount then
+      pool.rewards_amount = rewards_amount
+      Logger.trace("Updated Pool: " .. pool_id .. ", Rewards Amount: " .. rewards_amount)
+    end
+  else
+    Logger.warn("Pool not found: " .. pool_id)
+  end
+end
+Logger.info('Pool Manager Process  Started. Owner11')
 
 -- Credits handlers
 Handlers.add(
@@ -43,14 +54,15 @@ Handlers.add(
     -- assert Token is APUS 
     assert(msg.From == ApusTokenId, 'Invalid Token')
     -- Calculate credits to add
-    local credits_to_add = BintUtils.multiply(apus_amount, CreditExchangeRate)
+    
+    local credits_to_add = BintUtils.divide(BintUtils.multiply(apus_amount, CreditExchangeRate),Config.APUSDenomination)
     Logger.info("User: " .. user .. ", Credits to Add: " .. credits_to_add .. ", Credit Exchange Rate: " .. CreditExchangeRate)
     Undistributed_Credits[user] = BintUtils.add(Undistributed_Credits[user] or '0', credits_to_add)
     -- Record transaction and update balance (adds to unallocated pool '0')
     PoolMgrDb:recordCreditTransaction(ref,user, "buy", apus_amount, "0")
     msg.reply({
       Tags = { Code = "200" },
-      Data = json.encode({ User = user, Balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
+      Data = json.encode({ user = user, balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
     })
   end
 )
@@ -59,36 +71,14 @@ Handlers.add(
   "Get-Undistributed-Credits",
   Handlers.utils.hasMatchingTag("Action", "Get-Undistributed-Credits"),
   function(msg)
-    local user = msg.From or msg.Tags.Recipient
+    local user = msg.Tags.Recipient or msg.From 
     msg.reply({
       Tags = { Code = "200" },
-      Data = json.encode({ User = user, Balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
+      Data = json.encode({ user = user, balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
     })
   end
 )
-Handlers.add(
-  "Set-Credit-Ratio",
-  Handlers.utils.hasMatchingTag("Action", "Set-Credit-Ratio"),
-  function (msg)
-    -- Permission Check
-    if msg.From ~= Owner then
-      Logger.warn("Set-Credit-Ratio denied: Sender " .. msg.From .. " is not the owner.")
-      msg.reply({ Tags = { Code = "403" } , Data = "Unauthorized" })
-      return
-    end
 
-    local new_rate = msg.Tags.Ratio
-    if not new_rate or  BintUtils.lt(new_rate, '0') then
-       Logger.error("Set-Credit-Ratio failed: Invalid rate amount provided: " .. tostring(new_rate))
-       msg.reply({Tags = { Code = "400" }, Data = "Invalid rate amount" })
-       return
-    end
-
-    CreditExchangeRate = new_rate
-    Logger.info("Credit exchange rate updated to: " .. CreditExchangeRate .. " by owner.")
-    msg.reply({Tags = { Code = "200" }, Data = "CreditExchangeRate set to: " .. CreditExchangeRate .. " by owner." })
-  end
-)
 Handlers.add(
   "Get-All-Credits",
   Handlers.utils.hasMatchingTag("Action", "Get-All-Credits"),
@@ -106,6 +96,30 @@ Handlers.add(
     })
   end
 )
+
+--- Handler: Get-Pool-List
+-- Description: Returns All existing pools.
+-- Pattern: { Action = "Get-Pool-List" }
+
+
+Handlers.add(
+  "Get-Pool-List",
+  Handlers.utils.hasMatchingTag("Action", "Get-Pool-List"),
+  function(msg)
+    -- calculate current APY for each pool
+    for pool_id, pool in pairs(Pools) do
+      local total_staking = Pools[pool_id].cur_staking
+      local total_rewards = Pools[pool_id].rewards_amount
+      local apr = 0.05*365
+      pool.apr = apr
+    end
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode({ pools = Pools})
+    })
+  end
+)
+
 --- Handler: Get-Credits-Records
 -- Description: Returns Credits records for a specific user.
 -- Pattern: { Action = "Get-Credits-Records" }
@@ -113,8 +127,9 @@ Handlers.add(
   "Get-Credits-Records",
   Handlers.utils.hasMatchingTag("Action", "Get-Credits-Records"),
   function(msg)
-    Logger.info("get credits records for " .. msg.From)
-    local records = PoolMgrDb:getUserCreditsRecords(msg.From)
+    local user = msg.Tags.Recipient or msg.From 
+    Logger.info("get credits records for " .. user)
+    local records = PoolMgrDb:getUserCreditsRecords(user)
     local records_list = {}
     for _, record in pairs(records) do
       records_list[#records_list+1] = { ref = record.ref, record = record }
@@ -216,7 +231,7 @@ Handlers.add(
   function (msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
-    local pool_id = msg.Tags["X-PoolId"]
+    local pool_id = msg.Tags.PoolId
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     -- Validate pool_id and quantity
     assert(type(user) == 'string', 'user is required!')
@@ -250,7 +265,8 @@ Handlers.add(
 
     PoolMgrDb:recordCreditTransaction(ref,user, "add", quantity, pool_id)
     -- Send confirmation back to user
-    msg.reply({ Tags = { Code = "200" }, Data = json.encode({ Credits = Undistributed_Credits[user] }) })
+    msg.reply({ Tags = { Code = "200" },  
+      Data = json.encode({ user = user, balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') }) })
   end
 )
 
@@ -328,7 +344,7 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
   function (msg)
     local user = msg.From
-    local pool_id = msg.Tags["X-PoolId"]
+    local pool_id = msg.Tags.PoolId
     local amount_to_unstake = msg.Tags.Quantity
     local pool = Pools[pool_id]
     -- Validate input
@@ -376,8 +392,8 @@ Handlers.add(
   "Mgr-Get-Staking",
   Handlers.utils.hasMatchingTag("Action", "Get-Staking"),
   function (msg)
-    local user = msg.From or msg.Tags.Recipient
-    local pool_id = msg.Tags["X-PoolId"]
+    local user = msg.Tags.Recipient or msg.From 
+    local pool_id = msg.Tags.PoolId
     
     -- Validate input
     if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
@@ -408,7 +424,7 @@ Handlers.add(
   "Mgr-Get-Pool-Staking",
   Handlers.utils.hasMatchingTag("Action", "Get-Pool-Staking"),
   function (msg)
-    local pool_id = msg.Tags["X-PoolId"]
+    local pool_id = msg.Tags.PoolId
     local pool = Pools[pool_id]
     -- Validate input
     if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
@@ -466,7 +482,7 @@ Initialized = Initialized or false
     return
   end
   print("Initializing ...")
-
+  Config.PoolMgrProcessId = Owner
   local pool1 = createPool("1","Alex",20000,1000,"Today","NextDay")
   local pool2 = createPool("100","Jason",100000,1000,"Today","NextDay")
   Pools[pool1.pool_id] = pool1

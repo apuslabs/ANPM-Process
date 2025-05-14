@@ -18,8 +18,8 @@ Credits = Credits or {} -- Load from state if available
 Oracles = Oracles or {} -- Load from state if available
 
 -- Constants from Config
-local POOL_MGR_PROCESS_ID = Config.PoolMgrProcessId
-local TASK_COST = Config.TaskCost
+POOL_MGR_PROCESS_ID = Config.PoolMgrProcessId
+TASK_COST = Config.TaskCost
 
 -- ================= Handlers =================
 
