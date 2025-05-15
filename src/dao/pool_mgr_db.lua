@@ -185,12 +185,12 @@ function PoolMgrDAO:recordStakingTransaction(user_wallet_address, pool_id, trans
       end
     elseif transaction_type == 'UNSTAKE' then
       local amount_to_unstake = amount
-      -- Fetch oldest stake portions for this user/pool (FIFO)
+      -- Fetch latest stake portions for this user/pool (LIFO)
       local select_portions_sql = [[
                     SELECT id, staked_amount
                     FROM user_active_stake_portions
                     WHERE user_wallet_address = ? AND pool_id = ?
-                    ORDER BY staked_at ASC;
+                    ORDER BY staked_at DESC;
                 ]]
       local portions = self.dbAdmin:select(select_portions_sql, { user_wallet_address, pool_id })
 
