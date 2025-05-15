@@ -13,7 +13,7 @@ local function initialize_database(db_admin)
   Logger.trace('Initializing Pool database schema...')
   db_admin:exec([[
     CREATE TABLE IF NOT EXISTS tasks (
-      ref INTEGER PRIMARY KEY,
+      ref TEXT PRIMARY KEY,
       submitter TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending', -- pending, processing, done
       prompt TEXT NOT NULL,
@@ -49,9 +49,6 @@ end
 -- @param config_str The user's config string (optional).
 -- @return The reference ID (ref) of the newly created task.
 function PoolDAO:addTask(ref, submitter, prompt, config)
-  assert(type(ref) == "number", "Task ref must be a number")
-  assert(type(submitter) == "string", "Submitter must be a string")
-  assert(type(prompt) == "string", "Prompt must be a string")
   local current_time = math.floor(os.time())
   local sql = [[
     INSERT INTO tasks (ref, submitter, prompt, config, created_at, updated_at)
@@ -65,7 +62,6 @@ end
 -- @param oracle_node_id The ID of the oracle taking the task.
 -- @return The task details table if found and updated, otherwise nil.
 function PoolDAO:getAndStartPendingTask(oracle_node_id)
-  assert(type(oracle_node_id) == "string", "Oracle Node ID must be a string")
   local current_time = math.floor(os.time())
 
   -- Find the oldest pending task
@@ -113,9 +109,6 @@ end
 -- @param expected_oracle_node_id The Node ID of the Oracle expected to respond.
 -- @return The updated task details table if successful, otherwise nil.
 function PoolDAO:setTaskResponse(ref, output, expected_oracle_node_id)
-  assert(type(ref) == "number", "Task ref must be a number")
-  assert(type(output) == "string", "Output must be a string")
-  assert(type(expected_oracle_node_id) == "string", "Expected Oracle Node ID must be a string")
   local current_time = math.floor(os.time())
 
   -- Fetch the task to verify the oracle and status
@@ -176,7 +169,6 @@ end
 -- @param ref The task reference ID.
 -- @return The task details table or nil if not found.
 function PoolDAO:getTaskByRef(ref)
-    assert(type(ref) == "number", "Task ref must be a number")
     local sql = [[ SELECT * FROM tasks WHERE ref = ?; ]]
     local tasks = self.dbAdmin:select(sql, { ref })
     if tasks and #tasks > 0 then

@@ -114,9 +114,17 @@ Handlers.add(
   function(msg)
     local user = msg.From
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
+    if not ref then
+      Logger.error("Add-Task failed: Missing reference ID from " .. user)
+      msg.reply({
+        Tags = { Code = "400" },
+        Data = "Missing reference ID"
+      })
+      return
+    end
     local data = JSON.decode(msg.Data)
     local prompt = data.prompt
-    local config = data.config -- Optional
+    local config = data.config or [[{"n_gpu_layers":48,"ctx_size":20480}]] -- Optional
 
     if not prompt or type(prompt) ~= "string" or prompt == "" then
       Logger.warn("Add-Task failed: Missing or invalid prompt from " .. user)
@@ -142,7 +150,7 @@ Handlers.add(
     Credits[user] = BintUtils.subtract(current_balance, TASK_COST)
 
     -- Add Task to Database
-    PoolDb:addTask(tonumber(ref), user, prompt, config)
+    PoolDb:addTask(ref, user, prompt, config)
 
     Logger.trace("Task added to database with ref: " .. ref .. ", User: " .. user .. ", Cost: " .. TASK_COST)
   end
@@ -227,7 +235,7 @@ Handlers.add(
   { Action = "Task-Response", ["X-Oracle-Node-Id"] = "_", ['X-Reference'] = "_" },
   function(msg)
     local oracle_owner = msg.From
-    local task_ref = tonumber(msg.Tags['X-Reference'])
+    local task_ref = msg.Tags['X-Reference']
     local oracle_node_id = msg.Tags['X-Oracle-Node-Id'] -- Oracle identifies itself
     local data = JSON.decode(msg.Data)
     local output = data.output
@@ -263,6 +271,36 @@ Handlers.add(
       msg.forward(updated_task.submitter, {})
     else
       Logger.error("Failed to set task response for ref " .. task_ref .. ". Error: " .. (err or "Unknown DB error"))
+    end
+  end
+)
+
+--- Handler: Get-Task-Response
+--- Description: Allows a user to query the status of their task.
+Handlers.add(
+  "Get-Task-Response",
+  { Action = "Get-Task-Response" },
+  function(msg)
+    local task_ref = msg.Data
+    if not task_ref then
+      msg.reply({
+        Tags = { Code = "400" },
+        Data = "Missing or invalid task reference"
+      })
+      return
+    end
+
+    local task = PoolDb:getTaskByRef(task_ref)
+    if task then
+      msg.reply({
+        Tags = { Code = "200" },
+        Data = JSON.encode(task)
+      })
+    else
+      msg.reply({
+        Tags = { Code = "404" },
+        Data = "No response available for the specified task reference"
+      })
     end
   end
 )
