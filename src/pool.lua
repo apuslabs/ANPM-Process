@@ -10,6 +10,7 @@ local Logger = require('utils.log')
 local BintUtils = require('utils.bint_utils')
 local PoolDb = require('dao.pool_db').new() -- Initialize DAL
 local Config = require('utils.config')
+Logger.LogLevel = "trace"
 
 -- Process State (In-memory, persisted via AO mechanisms)
 -- Credits: Map<wallet_address, bigint_string>
@@ -135,20 +136,35 @@ Handlers.add(
       return
     end
 
-    Logger.trace("Processing Add-Task from User: " .. user .. ", Prompt: " .. prompt)
+    Logger.trace("Processing Add-Task from User: " .. user .. ", Prompt: " .. prompt .. ", Config: " .. config)
 
     -- Deduct Credit
-    Credits[user] = BintUtils.sub(current_balance, TASK_COST)
+    Credits[user] = BintUtils.subtract(current_balance, TASK_COST)
 
     -- Add Task to Database
-    PoolDb:addTask(ref, user, prompt, config)
+    PoolDb:addTask(tonumber(ref), user, prompt, config)
 
     Logger.trace("Task added to database with ref: " .. ref .. ", User: " .. user .. ", Cost: " .. TASK_COST)
+  end
+)
 
-    msg.reply({
-      Tags = { Code = "200" },
-      Data = ref
-    })
+
+-- Handler: Has-Pending-Task
+-- Description: Checks if there are any pending tasks in the pool. for dryrun
+Handlers.add(
+  "Has-Pending-Task",
+  { Action = "Has-Pending-Task" },
+  function(msg)
+    local has_pending_tasks = PoolDb:hasPendingTask()
+    if has_pending_tasks then
+      msg.reply({
+        Tags = { Code = "200" },
+      })
+    else
+      msg.reply({
+        Tags = { Code = "204" },
+      })
+    end
   end
 )
 
@@ -156,10 +172,10 @@ Handlers.add(
 -- Description: Finds a pending task, marks it as processing, and returns it to a registered Oracle.
 Handlers.add(
   "Get-Pending-Task",
-  { Action = "Get-Pending-Task", ['X-Oracle-Node-Id'] = "_" },
+  { Action = "Get-Pending-Task", NodeID = "_" },
   function(msg)
     local oracle_owner = msg.From
-    local oracle_node_id = msg.Tags['X-Oracle-Node-Id'] -- Oracles should identify themselves with their Node ID
+    local oracle_node_id = msg.Tags.NodeID -- Oracles should identify themselves with their Node ID
 
     -- Permission Check: Must be a registered Oracle owner AND provide their node ID
     local is_node_registered = false
@@ -169,7 +185,6 @@ Handlers.add(
         break
       end
     end
-
     if not is_node_registered then
       Logger.warn("Get-Pending-Task denied: Sender " .. oracle_owner .. " is not a registered Oracle owner.")
       msg.reply({
@@ -238,26 +253,16 @@ Handlers.add(
       return
     end
 
-    Logger.log("Received Task-Response for ref " ..
+    Logger.trace("Received Task-Response for ref " ..
       task_ref .. " from Oracle " .. oracle_node_id .. " (Owner: " .. oracle_owner .. ")")
 
     -- Update task in DB, verifying the oracle node ID matches the one assigned
     local updated_task, err = PoolDb:setTaskResponse(task_ref, output, oracle_node_id)
 
     if updated_task then
-      msg.reply({
-        Tags = { Code = "200" },
-      })
-      msg.forward(updated_task.submitter, {
-        Tags = { Code = "200", Action = "Task-Response", ["X-Reference"] = updated_task.ref },
-      })
+      msg.forward(updated_task.submitter, {})
     else
       Logger.error("Failed to set task response for ref " .. task_ref .. ". Error: " .. (err or "Unknown DB error"))
-      -- Send error back to Oracle
-      msg.reply({
-        Tags = { Code = "500" },
-        Data = err or "Failed to update task status"
-      })
     end
   end
 )
@@ -277,7 +282,7 @@ Handlers.add(
 -- Description: Allows the process owner to add a new GPU Node Oracle.
 Handlers.add(
   "Add-Node-Oracle",
-  { Action = "Add-Node-Oracle", From = Owner },
+  { Action = "Add-Node-Oracle", From = function(from) return from == Owner or from == ao.id end },
   function(msg)
     local data = JSON.decode(msg.Data)
     local node_id = data.node_id
@@ -290,7 +295,7 @@ Handlers.add(
     end
 
     Oracles[node_id] = oracle_owner
-    Logger.log("Oracle Node added/updated: ID=" .. node_id .. ", Owner=" .. oracle_owner)
+    Logger.info("Oracle Node added/updated: ID=" .. node_id .. ", Owner=" .. oracle_owner)
   end
 )
 
@@ -298,7 +303,7 @@ Handlers.add(
 -- Description: Allows the process owner to remove a GPU Node Oracle.
 Handlers.add(
   "Remove-Node-Oracle",
-  { Action = "Remove-Node-Oracle", From = Owner },
+  { Action = "Remove-Node-Oracle", From = function(from) return from == Owner or from == ao.id end },
   function(msg)
     local data = JSON.decode(msg.Data)
     local node_id = data.node_id
@@ -309,7 +314,7 @@ Handlers.add(
     end
 
     Oracles[node_id] = nil
-    Logger.log("Oracle Node removed: ID=" .. node_id)
+    Logger.info("Oracle Node removed: ID=" .. node_id)
   end
 )
 

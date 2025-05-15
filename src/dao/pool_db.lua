@@ -92,6 +92,21 @@ function PoolDAO:getAndStartPendingTask(oracle_node_id)
   return task
 end
 
+function PoolDAO:hasPendingTask()
+  -- Find the oldest pending task
+  local pending_tasks = self.dbAdmin:select([[
+    SELECT ref FROM tasks
+    WHERE status = 'pending'
+    LIMIT 1;
+  ]], {})
+
+  if not pending_tasks or #pending_tasks == 0 then
+    return false
+  end
+
+  return true
+end
+
 --- Updates a task with the response from an Oracle.
 -- @param ref The reference ID of the task.
 -- @param output The output/result from the Oracle.
