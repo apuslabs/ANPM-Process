@@ -26,7 +26,10 @@ local function createPool(pool_id, creator, staking_capacity,rewards_amount,crea
     created_at = created_at,
     started_at = started_at,
     cur_staking = '0',
-    apr = 0.05
+    apr = 0.05,
+    name = "Qwen",
+    description = "First Pool description",
+    image_url = "https://qianwen-res.oss-accelerate-overseas.aliyuncs.com/qwen3-banner.png",
   }
 end
 function UpdatePool(pool_id,rewards_amount)
@@ -40,7 +43,7 @@ function UpdatePool(pool_id,rewards_amount)
     Logger.warn("Pool not found: " .. pool_id)
   end
 end
-Logger.info('Pool Manager Process  Started. Owner11')
+Logger.info('Pool Manager Process  Started. Owner12')
 
 -- Credits handlers
 Handlers.add(
@@ -55,7 +58,7 @@ Handlers.add(
     assert(msg.From == ApusTokenId, 'Invalid Token')
     -- Calculate credits to add
     
-    local credits_to_add = BintUtils.divide(BintUtils.multiply(apus_amount, CreditExchangeRate),Config.APUSDenomination)
+    local credits_to_add = BintUtils.multiply(apus_amount, CreditExchangeRate)
     Logger.info("User: " .. user .. ", Credits to Add: " .. credits_to_add .. ", Credit Exchange Rate: " .. CreditExchangeRate)
     Undistributed_Credits[user] = BintUtils.add(Undistributed_Credits[user] or '0', credits_to_add)
     -- Record transaction and update balance (adds to unallocated pool '0')
@@ -482,10 +485,7 @@ Initialized = Initialized or false
     return
   end
   print("Initializing ...")
-  Config.PoolMgrProcessId = Owner
-  local pool1 = createPool("1","Alex",20000,1000,"Today","NextDay")
-  local pool2 = createPool("100","Jason",100000,1000,"Today","NextDay")
+  local pool1 = createPool("1","Alex","20000000000000000","100000000","Today","NextDay")
   Pools[pool1.pool_id] = pool1
-  Pools[pool2.pool_id] = pool2
   assert(next(Pools) ~= nil, "Initiali First pool failed")
 end)()

@@ -18,7 +18,7 @@ Credits = Credits or {} -- Load from state if available
 Oracles = Oracles or {} -- Load from state if available
 
 -- Constants from Config
-POOL_MGR_PROCESS_ID = Config.PoolMgrProcessId
+POOL_MGR_PROCESS_ID = POOL_MGR_PROCESS_ID or Config.PoolMgrProcessId
 TASK_COST = Config.TaskCost
 
 -- ================= Handlers =================
@@ -27,11 +27,13 @@ TASK_COST = Config.TaskCost
 -- Description: Adds credit to a user's balance, only accepts messages from the configured Pool Manager.
 Handlers.add(
   "Add-Credit",
-  { Action = "AN-Credit-Notice", From = POOL_MGR_PROCESS_ID, Quantity = "_", User = "_" },
+  { Action = "AN-Credit-Notice"},
   function(msg)
     local user = msg.Tags.User
     local quantity = msg.Tags.Quantity
-
+    local from  = msg.From
+    assert(from == POOL_MGR_PROCESS_ID, "Only accept Add-Credit from Pool Manager")
+    assert(type(user) == 'string', "Add-Credit requires a user")
     Logger.trace("Processing Add-Credit for User: " .. user .. ", Quantity: " .. quantity)
 
     -- Update Credits Map
@@ -57,11 +59,11 @@ Handlers.add(
 -- Description: Transfer credits back to Pool Manager.
 Handlers.add(
   "Transfer-Credits",
-  { Action = "Transfer-Credits", Quantity = "_" },
+  { Action = "Transfer-Credits"},
   function(msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
-
+    assert(type(user) == 'string', "Transfer-Creditst requires a user")
     Logger.trace("Processing Transfer-Credits for User: " .. user .. ", Quantity: " .. quantity)
 
     -- Check if user has enough credits
@@ -77,7 +79,7 @@ Handlers.add(
     end
 
     -- Deduct Credit
-    Credits[user] = BintUtils.sub(current_balance, quantity)
+    Credits[user] = BintUtils.subtract(current_balance, quantity)
 
     -- Send confirmation back to Pool Manager
     ao.send(

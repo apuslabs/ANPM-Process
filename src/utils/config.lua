@@ -5,6 +5,7 @@ M.PoolMgrProcessId = "qSBJv7baBBcgqldPO-6g6Rbw-TSgWfTyAUxm3LohQgI"
 
 -- CreditExchangeRate
 M.CreditExchangeRate = "1"
+M.CreditsDenomination = "1000000000000"
 M.APUSDenomination =  "1000000000000"
 -- APUS TOken Process
 M.ApusTokenId = "z-g8aooeUGaBX3mNh9ad3MJfVM49YFd_2-Lx9jVqNXw" 
