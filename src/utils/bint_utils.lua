@@ -32,4 +32,12 @@ BintUtils.toNumber = function(a)
   return tonumber(a)
 end
 
+BintUtils.isZero = function(a)
+  return bint(a) == bint(0)
+end
+
+BintUtils.isEqual = function(a, b)
+  return bint(a) == bint(b)
+end
+
 return BintUtils
