@@ -345,7 +345,8 @@ function PoolMgrDAO:getAllStakeRecords()
   return results
 end
 
-local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60 * 1000
+-- local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60 * 1000
+local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 60
 --[[
   Gets the total *effective* staked amount for a user in a specific pool.
   Effective stake is stake held for >= 24 hours.

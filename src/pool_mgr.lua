@@ -410,7 +410,10 @@ Handlers.add(
     
 
     -- Get user's staked balance in the specified pool
-    local current_stake = Stakers[user][pool_id] or '0'
+    local current_stake = '0'
+    if Stakers[user] and Stakers[user][pool_id] then
+      current_stake = Stakers[user][pool_id]
+    end
     
     msg.reply({ 
       Tags = { Code = "200"}, 
@@ -475,15 +478,11 @@ Handlers.add(
   end
 )
 
-local function isCron(msg)
-  return msg.Action == "Cron" and (msg.From == ao.env.Process.Owner or msg.From == ao.id)
-end
 local function computeInterest(timestamp)
   for pool_id, pool in pairs(Pools) do
-    if pool.started_at >= timestamp then
-      Logger.info("Pool " .. pool_id .. " has not start yet.")
-      Logger.info(string.format("Received Distribute Interest from Cron, but not processing it.(%s)",
-      os.date("%Y-%m-%d %H:%M:%S(UTC)", pool.started_at)))
+    if BintUtils.gt(pool.started_at,timestamp) then
+      Logger.warn("Cuurent time is  " .. timestamp)
+      Logger.warn("Pool " .. pool_id .. " has not start yet. will start at " .. pool.started_at .. ". Skipping interest computation for pool " .. pool_id .. ".")
     else
       -- 1. Get all eligible stake portions for the pool
       local total_effective_stake_amount = PoolMgrDb:getTotalEffectiveStakeAmountInPool(pool_id)  
@@ -496,52 +495,47 @@ local function computeInterest(timestamp)
       -- 2. Aggregate stakes per user and calculate total effective stake
       
       local eligible_stakers = PoolMgrDb:getEligibleStakersInPool(pool_id)
-      Logger.info("Eligible Stakers: " .. json.encode(eligible_stakers))
       local user_total_effective_stakes = {} -- Key: user_wallet_address, Value: bint total effective stake
       local overall_total_effective_stake = '0'
-
       for _, _staker in ipairs(eligible_stakers) do
           local user_addr = _staker.user_wallet_address
           local stake_amount = _staker.staked_amount
 
           overall_total_effective_stake = BintUtils.add(overall_total_effective_stake, stake_amount)
-
           if user_total_effective_stakes[user_addr] then
               user_total_effective_stakes[user_addr] = BintUtils.add(user_total_effective_stakes[user_addr], stake_amount)
           else
               user_total_effective_stakes[user_addr] = stake_amount
           end
       end
-
       -- 3. Calculate and record interest for each user, prepare batch transfer data
-
 
       local total_interest_calculated_for_distribution = '0' -- For tracking dust
       local daily_interest_amount = pool.rewards_amount
+      local floor = math.floor
       for user_addr, user_effective_stake in pairs(user_total_effective_stakes) do
           -- Calculate user's interest: (user_effective_stake * total_daily_interest_amount) / overall_total_effective_stake
+          Logger.info("User: " .. user_addr .. ", Effective Stake: " .. user_effective_stake)
           local numerator = BintUtils.multiply(user_effective_stake, daily_interest_amount)
-          local user_interest_share = BintUtils.divide(numerator, overall_total_effective_stake) -- Integer division
-
-        
-          if BintUtils.gt(user_interest_share, '0') then
+          local user_interest_share = floor(BintUtils.divide(numerator, overall_total_effective_stake)) -- Integer division
+          local user_interest_share_bint = BintUtils.toBalanceValue(user_interest_share)
+          if BintUtils.gt(user_interest_share_bint, '0') then
             -- Add interst to undistribute interest
-            Undistributed_Interest[user_addr] = BintUtils.add(Undistributed_Interest[user_addr] or '0', user_interest_share)
+            Undistributed_Interest[user_addr] = BintUtils.add(Undistributed_Interest[user_addr] or '0', user_interest_share_bint)
             -- Record the distribution in the database
-            local record_ok, record_err = PoolMgrDb:recordInterestDistribution(user_addr, pool_id, user_interest_share, user_effective_stake)
+            local record_ok, record_err = PoolMgrDb:recordInterestDistribution(user_addr, pool_id, user_interest_share_bint, user_effective_stake)
             if not record_ok then
                 Logger.error("Mgr-Distribute-Interest: Failed to record interest distribution for user " .. user_addr .. 
                             " in pool " .. pool_id .. ". Error: " .. (record_err or "Unknown") .. ". Skipping this user for batch transfer.")
                 goto continue_loop -- Skip this user if DB recording fails
             end
-
             -- Add to batch transfer list
             -- table.insert(batch_transfer_data, user_addr .. "," .. user_interest_share)
-            total_interest_calculated_for_distribution = BintUtils.add(total_interest_calculated_for_distribution, user_interest_share)
+            
+            total_interest_calculated_for_distribution = BintUtils.add(total_interest_calculated_for_distribution, user_interest_share_bint)
             Logger.debug("Mgr-Distribute-Interest: User " .. user_addr .. " in pool " .. pool_id .. 
-                        " eligible for " .. user_interest_share .. " interest from stake " .. user_effective_stake)
+                        " eligible for " .. user_interest_share_bint .. " interest from stake " .. user_effective_stake)
           else
-
             Logger.debug("Mgr-Distribute-Interest: User " .. user_addr .. " in pool " .. pool_id .. 
                         " calculated interest share is zero or less. Stake: " .. user_effective_stake)
           end
@@ -552,48 +546,48 @@ local function computeInterest(timestamp)
   end
     
 end
-Handlers.add("Mgr-Distribute-Interest", isCron, function(msg)
-  computeInterest(msg.Timestamp)
-  local batch_transfer_data = {} -- Array of "address,amount" strings
-  local totalAPUSBalance = ao.send({ Target = ApusTokenId, Action = "Balance"}).receive().Data
-  Logger.info("Total Balance: " .. totalAPUSBalance)
+Handlers.add("Mgr-Distribute-Interest", 
+  Handlers.utils.hasMatchingTag("Action", "Cron"),
+  function(msg)
+    computeInterest(msg.Timestamp)
+    local batch_transfer_data = {} -- Array of "address,amount" strings
+    local totalAPUSBalance = ao.send({ Target = ApusTokenId, Action = "Balance"}).receive().Data
+    Logger.info("Total Balance: " .. totalAPUSBalance)
 
-  -- loop Undistributed_Interest and sum up all interst
-  local total_undistributed_interest = '0'
-  for user_addr, user_interest in pairs(Undistributed_Interest) do
-    total_undistributed_interest = BintUtils.add(total_undistributed_interest, user_interest)
-      -- Add to batch transfer list
-    table.insert(batch_transfer_data, user_addr .. "," .. user_interest)
-  end
+    -- loop Undistributed_Interest and sum up all interst
+    local total_undistributed_interest = '0'
+    for user_addr, user_interest in pairs(Undistributed_Interest) do
+      total_undistributed_interest = BintUtils.add(total_undistributed_interest, user_interest)
+        -- Add to batch transfer list
+      batch_transfer_data[#batch_transfer_data + 1] =  user_addr .. "," .. user_interest 
+    end
 
-  -- sum up all pools staking amount
-  local total_pool_stake_amount = '0'
-  for _, pool in pairs(Pools) do
-    total_pool_stake_amount = BintUtils.add(total_pool_stake_amount, pool.cur_staking)
-  end
+    -- sum up all pools staking amount
+    local total_pool_stake_amount = '0'
+    for _, pool in pairs(Pools) do
+      total_pool_stake_amount = BintUtils.add(total_pool_stake_amount, pool.cur_staking)
+    end
 
-  Logger.info("Total undistributed_interest: " .. total_undistributed_interest)
-  
-  local availableInterest = BintUtils.subtract(totalAPUSBalance, BintUtils.toBalanceValue(total_pool_stake_amount))
-  -- if Balance is not enough, exit 
-  if BintUtils.lt(availableInterest, total_undistributed_interest) then
-    Logger.info("Mgr-Distribute-Interest: Insufficient APUS balance for interest distribution. Available: " .. availableInterest .. ", Required: " .. total_undistributed_interest)
-    return
-  end
+    Logger.info("Total undistributed_interest: " .. total_undistributed_interest)
+    
+    local availableInterest = BintUtils.subtract(totalAPUSBalance, BintUtils.toBalanceValue(total_pool_stake_amount))
+    -- if Balance is not enough, exit 
+    if BintUtils.lt(availableInterest, total_undistributed_interest) then
+      Logger.info("Mgr-Distribute-Interest: Insufficient APUS balance for interest distribution. Available: " .. availableInterest .. ", Required: " .. total_undistributed_interest)
+      return
+    end
 
-  -- 4. Perform Batch Transfer if there's data
-  if #batch_transfer_data > 0 then
-      local csv_data_string = table.concat(batch_transfer_data, "\n")
-      Logger.info("Mgr-Distribute-Interest: Prepared CSV data for batch transfer :\n" .. csv_data_string)
+    -- 4. Perform Batch Transfer if there's data
+    if #batch_transfer_data > 0 then
+        local csv_data_string = table.concat(batch_transfer_data, "\n")
+        ao.send({ Target = ApusTokenId, Tags = {Cast ="true", Action = "Batch-Transfer"}, Data = csv_data_string})
 
-      ao.send({ Target = ApusTokenId, Tags = {Cast ="true", Action = "Batch-Transfer"}, Data = csv_data_string})
-
-  else
-      Logger.info("Mgr-Distribute-Interest: No users eligible for interest transfer after calculations  " )
-  end
-  -- clean undistribute interest
-  Undistributed_Interest = {}
-  Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
+    else
+        Logger.info("Mgr-Distribute-Interest: No users eligible for interest transfer after calculations  " )
+    end
+    -- clean undistribute interest
+    Undistributed_Interest = {}
+    Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
   end
 )
 
