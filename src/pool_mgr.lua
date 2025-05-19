@@ -43,7 +43,7 @@ function UpdatePool(pool_id,rewards_amount)
     Logger.warn("Pool not found: " .. pool_id)
   end
 end
-Logger.info('Pool Manager Process  Started. Owner15')
+Logger.info('Pool Manager Process  Started. Owner16')
 
 -- Credits handlers
 Handlers.add(
@@ -404,19 +404,21 @@ Handlers.add(
       msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided."}})
       return
     end
-    
-
     -- Get user's staked balance in the specified pool
     local current_stake = '0'
     if Stakers[user] and Stakers[user][pool_id] then
       current_stake = Stakers[user][pool_id]
     end
+    -- Get user's earned interest in the specified pool
+    local earned = PoolMgrDb:getTotalDistributedInterest(user,pool_id)    
+    Logger.info("Get-All-Earned-Interest: Returning " .. earned)
     
     msg.reply({ 
       Tags = { Code = "200"}, 
       Data = json.encode({ 
         pool_id = pool_id, 
         current_stake = current_stake,
+        total_interest = earned 
       })
     })
   end
@@ -438,7 +440,7 @@ Handlers.add(
       msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided.", Action="Get-Pool-Staking-Failure" }})
       return
     end
-    
+
     -- Get total staked amount in the pool
     local total_pool_stake = pool.cur_staking or '0'
     Logger.info("Get-Pool-Staking: Total staked in pool " .. pool_id .. " is " .. total_pool_stake)
@@ -585,25 +587,6 @@ Handlers.add("Mgr-Distribute-Interest",
     -- clean undistribute interest
     Undistributed_Interest = {}
     Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
-  end
-)
-Handlers.add(
-  "Mgr-Get-All-Earned-Interest",
-  Handlers.utils.hasMatchingTag("Action", "Get-All-Earned-Interest"),
-  function (msg) 
-    local pool_id = msg.Tags.PoolId
-    if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
-      Logger.error("Get-Pool-Staking failed: Invalid pool_id from " .. msg.From)
-      msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided.", Action="Get-All-Earned-Interest-Failure" }})
-      return
-    end
-    local user = msg.Tags.Recipient or msg.From 
-    local result = PoolMgrDb:getTotalDistributedInterest(user,pool_id)    
-    Logger.info("Get-All-Earned-Interest: Returning " .. result)
-    msg.reply({
-      Tags = { Code = "200", Action = "Get-All-Staking-Success" },
-      Data = json.encode({ user = user, total_interest = result or '0' }) 
-    })
   end
 )
 -- Initialization flag to prevent re-initialization
