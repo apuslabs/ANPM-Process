@@ -475,5 +475,28 @@ function PoolMgrDAO:recordInterestDistribution(user_wallet_address, pool_id, amo
   end
 end
 
+--- Gets the total distributed interest for a user in a specific pool.
+-- @param wallet_address User's AR address.
+-- @param pool_id Pool ID.
+-- @return Total distributed interest (bint string).
+function PoolMgrDAO:getTotalDistributedInterest(wallet_address, pool_id)
+  assert(type(wallet_address) == "string", "wallet_address must be a string")
+  assert(type(pool_id) == "string", "pool_id must be a string")
+
+  local sql = [[
+      SELECT * 
+      FROM interest_distributions
+      WHERE user_wallet_address = ? AND pool_id = ?;
+  ]]
+  local result = self.dbAdmin:select(sql, { wallet_address, pool_id })
+  local total_interest = '0'
+  if result then
+      for _, row in ipairs(result) do
+          total_interest = BintUtils.add(total_interest, row.amount)
+      end
+  end
+  return total_interest
+end
+
 
 return PoolMgrDAO

@@ -9,9 +9,6 @@ Undistributed_Interest  = Undistributed_Interest or {}
 Pools = Pools or {}
 Stakers = Stakers or {}
 CreditExchangeRate = CreditExchangeRate or Config.CreditExchangeRate
-StartCalculateStakeTime = StartCalculateStakeTime  or 1747180800
-PoolDailyReward =  1000
-DistributeInterestTimes = DistributeInterestTimes or 0
 
 -- Constants from Config
 ApusTokenId =  ApusTokenId or Config.ApusTokenId
@@ -46,7 +43,7 @@ function UpdatePool(pool_id,rewards_amount)
     Logger.warn("Pool not found: " .. pool_id)
   end
 end
-Logger.info('Pool Manager Process  Started. Owner12')
+Logger.info('Pool Manager Process  Started. Owner15')
 
 -- Credits handlers
 Handlers.add(
@@ -116,7 +113,7 @@ Handlers.add(
     for pool_id, pool in pairs(Pools) do
       local total_staking = Pools[pool_id].cur_staking
       local total_rewards = Pools[pool_id].rewards_amount
-      local apr = 0.05*365
+      local apr = BintUtils.divide(total_rewards,total_staking)*365
       pool.apr = apr
     end
     msg.reply({
@@ -590,8 +587,25 @@ Handlers.add("Mgr-Distribute-Interest",
     Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
   end
 )
-
-
+Handlers.add(
+  "Mgr-Get-All-Earned-Interest",
+  Handlers.utils.hasMatchingTag("Action", "Get-All-Earned-Interest"),
+  function (msg) 
+    local pool_id = msg.Tags.PoolId
+    if not pool_id or type(pool_id) ~= "string" or not isValidPool(pool_id) then
+      Logger.error("Get-Pool-Staking failed: Invalid pool_id from " .. msg.From)
+      msg.reply({ Tags = { Code = "400", Error = "Invalid pool_id provided.", Action="Get-All-Earned-Interest-Failure" }})
+      return
+    end
+    local user = msg.Tags.Recipient or msg.From 
+    local result = PoolMgrDb:getTotalDistributedInterest(user,pool_id)    
+    Logger.info("Get-All-Earned-Interest: Returning " .. result)
+    msg.reply({
+      Tags = { Code = "200", Action = "Get-All-Staking-Success" },
+      Data = json.encode({ user = user, total_interest = result or '0' }) 
+    })
+  end
+)
 -- Initialization flag to prevent re-initialization
 Initialized = Initialized or false
 -- Immediately Invoked Function Expression (IIFE) for initialization logic
@@ -603,7 +617,7 @@ Initialized = Initialized or false
     return
   end
   print("Initializing ...")
-  local pool1 = createPool("1","Alex","20000000000000000","100000000","Today","NextDay")
+  local pool1 = createPool("16YUaa019q9gKL6vYFLICP-c-Kpv0p2WeUfeYJHPBzw","Alex","20000000000000000","100000000000000","Today","1746449098000")
   Pools[pool1.pool_id] = pool1
   assert(next(Pools) ~= nil, "Initiali First pool failed")
 end)()
