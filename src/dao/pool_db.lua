@@ -122,13 +122,15 @@ function PoolDAO:setTaskResponse(ref, output, expected_oracle_node_id)
   local task = tasks[1]
 
   if task.status ~= 'processing' then
-     Logger.error('Task-Response: Task ' .. ref .. ' is not in processing state (current: '.. task.status ..').')
-     return nil, "Task not processing"
+    Logger.error('Task-Response: Task ' .. ref .. ' is not in processing state (current: ' .. task.status .. ').')
+    return nil, "Task not processing"
   end
 
   if task.resolve_node ~= expected_oracle_node_id then
-     Logger.error('Task-Response: Task ' .. ref .. ' was assigned to Oracle ' .. task.resolve_node .. ', but response received from ' .. expected_oracle_node_id)
-     return nil, "Oracle mismatch"
+    Logger.error('Task-Response: Task ' ..
+      ref ..
+      ' was assigned to Oracle ' .. task.resolve_node .. ', but response received from ' .. expected_oracle_node_id)
+    return nil, "Oracle mismatch"
   end
 
   -- Update the task
@@ -165,18 +167,34 @@ function PoolDAO:getTaskStatistics()
   end
 end
 
+function PoolDAO:getPendingTaskCount()
+  local sql = [[
+    SELECT COUNT(*) as count FROM tasks WHERE status = 'pending';
+  ]]
+  local results = self.dbAdmin:select(sql, {})
+  if results and #results > 0 then
+    return results[1].count or 0
+  else
+    return 0
+  end
+end
+
 --- Gets a specific task by its reference ID.
 -- @param ref The task reference ID.
 -- @return The task details table or nil if not found.
 function PoolDAO:getTaskByRef(ref)
-    local sql = [[ SELECT * FROM tasks WHERE ref = ?; ]]
-    local tasks = self.dbAdmin:select(sql, { ref })
-    if tasks and #tasks > 0 then
-        return tasks[1]
-    else
-        return nil
-    end
+  local sql = [[ SELECT * FROM tasks WHERE ref = ?; ]]
+  local tasks = self.dbAdmin:select(sql, { ref })
+  if tasks and #tasks > 0 then
+    return tasks[1]
+  else
+    return nil
+  end
 end
 
+function PoolDAO:getAllTasks()
+  local sql = [[ SELECT * FROM tasks; ]]
+  return self.dbAdmin:select(sql, {})
+end
 
 return PoolDAO

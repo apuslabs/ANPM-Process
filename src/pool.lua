@@ -16,6 +16,50 @@ Oracles             = Oracles or {} -- Load from state if available
 POOL_MGR_PROCESS_ID = POOL_MGR_PROCESS_ID or Config.PoolMgrProcessId
 TASK_COST           = Config.TaskCost
 
+-- Functions to fetch state
+function getCredits()
+  return JSON.encode(Credits)
+end
+
+function getOracles()
+  return JSON.encode(Oracles)
+end
+
+function getPendingTaskCount()
+  return JSON.encode(PoolDb:getPendingTaskCount())
+end
+
+function getTaskStatistics()
+  return JSON.encode(PoolDb:getTaskStatistics())
+end
+
+function getTasks()
+  return JSON.encode(PoolDb:getAllTasks())
+end
+
+-- Cache state on spawn
+InitialCache = InitialCache or 'INCOMPLETE'
+if InitialCache == 'INCOMPLETE' then
+  Send({
+    device = 'patch@1.0',
+    credits = getCredits(),
+    oracles = getOracles(),
+    pending_taskcount = getPendingTaskCount(),
+    tasks = getTasks(),
+    task_statistics = getTaskStatistics()
+  })
+  InitialCache = 'COMPLETE'
+end
+
+function updateTaskState()
+  Send({
+    device = 'patch@1.0',
+    pending_taskcount = getPendingTaskCount(),
+    tasks = getTasks(),
+    task_statistics = getTaskStatistics()
+  })
+end
+
 -- ================= Handlers =================
 
 --- Handler: Add-Credit
@@ -47,6 +91,10 @@ Handlers.add(
         Data = JSON.encode({ user = user, balance = Credits[user] })
       }
     )
+    Send({
+      device = 'patch@1.0',
+      credits = getCredits()
+    })
   end
 )
 
@@ -83,19 +131,9 @@ Handlers.add(
         Tags = { Action = "AN-Credit-Notice", User = user, Quantity = quantity },
       }
     )
-  end
-)
-
---- Handler: Get-Credit-Balance
--- Description: Allows a user to query their credit balance within this pool.
-Handlers.add(
-  "Get-Credit-Balance",
-  { Action = "Credit-Balance" },
-  function(msg)
-    local user = msg.Tags.Recipient or msg.From
-    msg.reply({
-      Tags = { Code = "200" },
-      Data = JSON.encode({ user = user, balance = BintUtils.toBalanceValue(Credits[user] or '0') })
+    Send({
+      device = 'patch@1.0',
+      credits = getCredits()
     })
   end
 )
@@ -147,26 +185,8 @@ Handlers.add(
     PoolDb:addTask(ref, user, prompt, config)
 
     Logger.trace("Task added to database with ref: " .. ref .. ", User: " .. user .. ", Cost: " .. TASK_COST)
-  end
-)
 
-
--- Handler: Has-Pending-Task
--- Description: Checks if there are any pending tasks in the pool. for dryrun
-Handlers.add(
-  "Has-Pending-Task",
-  { Action = "Has-Pending-Task" },
-  function(msg)
-    local has_pending_tasks = PoolDb:hasPendingTask()
-    if has_pending_tasks then
-      msg.reply({
-        Tags = { Code = "200" },
-      })
-    else
-      msg.reply({
-        Tags = { Code = "204" },
-      })
-    end
+    updateTaskState()
   end
 )
 
@@ -219,6 +239,8 @@ Handlers.add(
         Data = "No pending tasks available"
       })
     end
+
+    updateTaskState()
   end
 )
 
@@ -266,6 +288,8 @@ Handlers.add(
     else
       Logger.error("Failed to set task response for ref " .. task_ref .. ". Error: " .. (err or "Unknown DB error"))
     end
+
+    updateTaskState()
   end
 )
 
@@ -299,17 +323,6 @@ Handlers.add(
   end
 )
 
---- Handler: Tasks-Statistics
--- Description: Returns statistics about tasks in the pool.
-Handlers.add(
-  "Tasks-Statistics",
-  { Action = "Tasks-Statistics" },
-  function(msg)
-    local stats = PoolDb:getTaskStatistics()
-    msg.reply({ Data = JSON.encode(stats) })
-  end
-)
-
 --- Handler: Add-Node-Oracle
 -- Description: Allows the process owner to add a new GPU Node Oracle.
 Handlers.add(
@@ -328,6 +341,11 @@ Handlers.add(
 
     Oracles[node_id] = oracle_owner
     Logger.info("Oracle Node added/updated: ID=" .. node_id .. ", Owner=" .. oracle_owner)
+
+    Send({
+      device = 'patch@1.0',
+      oracles = getOracles()
+    })
   end
 )
 
@@ -347,20 +365,11 @@ Handlers.add(
 
     Oracles[node_id] = nil
     Logger.info("Oracle Node removed: ID=" .. node_id)
-  end
-)
 
---- Handler: Get-Node-Oracles
--- Description: Allows anyone to get the list of registered Oracle nodes and their owners.
-Handlers.add(
-  "Get-Node-Oracles",
-  { Action = "Get-Node-Oracles" },
-  function(msg)
-    local oracle_list = {}
-    for node_id, owner in pairs(Oracles) do
-      table.insert(oracle_list, { node_id = node_id, owner = owner })
-    end
-    msg.reply({ Data = JSON.encode(oracle_list) })
+    Send({
+      device = 'patch@1.0',
+      oracles = getOracles()
+    })
   end
 )
 
