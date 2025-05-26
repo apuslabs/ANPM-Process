@@ -1,26 +1,20 @@
--- Pool Process Implementation
--- Manages AI tasks, user credits within the pool, and GPU Node Oracles.
+local JSON          = require("json")
+local Logger        = require('utils.log')
+local BintUtils     = require('utils.bint_utils')
+local PoolDb        = require('dao.pool_db').new() -- Initialize DAL
+local Config        = require('utils.config')
 
--- AO Library (Implicitly available)
--- local ao = require('ao') -- Assuming 'ao' is globally available or required implicitly
-
--- Utilities
-local JSON = require("json")
-local Logger = require('utils.log')
-local BintUtils = require('utils.bint_utils')
-local PoolDb = require('dao.pool_db').new() -- Initialize DAL
-local Config = require('utils.config')
-Logger.LogLevel = "trace"
+Logger.LogLevel     = "trace"
 
 -- Process State (In-memory, persisted via AO mechanisms)
 -- Credits: Map<wallet_address, bigint_string>
-Credits = Credits or {} -- Load from state if available
+Credits             = Credits or {} -- Load from state if available
 -- Oracles: Map<node_id, owner_address>
-Oracles = Oracles or {} -- Load from state if available
+Oracles             = Oracles or {} -- Load from state if available
 
 -- Constants from Config
 POOL_MGR_PROCESS_ID = POOL_MGR_PROCESS_ID or Config.PoolMgrProcessId
-TASK_COST = Config.TaskCost
+TASK_COST           = Config.TaskCost
 
 -- ================= Handlers =================
 
@@ -28,11 +22,11 @@ TASK_COST = Config.TaskCost
 -- Description: Adds credit to a user's balance, only accepts messages from the configured Pool Manager.
 Handlers.add(
   "Add-Credit",
-  { Action = "AN-Credit-Notice"},
+  { Action = "AN-Credit-Notice" },
   function(msg)
-    local user = msg.Tags.User
+    local user     = msg.Tags.User
     local quantity = msg.Tags.Quantity
-    local from  = msg.From
+    local from     = msg.From
     assert(from == POOL_MGR_PROCESS_ID, "Only accept Add-Credit from Pool Manager")
     assert(type(user) == 'string', "Add-Credit requires a user")
     Logger.trace("Processing Add-Credit for User: " .. user .. ", Quantity: " .. quantity)
@@ -60,7 +54,7 @@ Handlers.add(
 -- Description: Transfer credits back to Pool Manager.
 Handlers.add(
   "Transfer-Credits",
-  { Action = "Transfer-Credits"},
+  { Action = "Transfer-Credits" },
   function(msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
@@ -208,7 +202,7 @@ Handlers.add(
 
     if task then
       Logger.trace("Oracle " ..
-      oracle_owner .. " (Node ID: " .. oracle_node_id .. ") requested a pending task " .. task.ref)
+        oracle_owner .. " (Node ID: " .. oracle_node_id .. ") requested a pending task " .. task.ref)
       -- Send task details to the Oracle
       msg.reply({
         Tags = { Code = "200" },
