@@ -279,7 +279,7 @@ end
 -- @param pool_id Pool ID.
 -- @return Total staked amount in the pool (bint string).
 
-function  PoolMgrDAO:getTotalPoolStakeAmount(pool_id)
+function PoolMgrDAO:getTotalPoolStakeAmount(pool_id)
   assert(pool_id == '0' or type(pool_id) == "string", "pool_id must be '0' or a string")
   return '100'
   -- local sql = [[
@@ -359,7 +359,7 @@ function PoolMgrDAO:getEffectiveUserStake(user_wallet_address, pool_id)
   local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
 
   local sql = [[
-      SELECT staked_amount 
+      SELECT staked_amount
       FROM user_active_stake_portions
       WHERE user_wallet_address = ? AND pool_id = ? AND staked_at <= ?;
   ]]
@@ -367,9 +367,9 @@ function PoolMgrDAO:getEffectiveUserStake(user_wallet_address, pool_id)
 
   local effective_stake = '0'
   if rows then
-      for _, row in ipairs(rows) do
-          effective_stake = BintUtils.add(effective_stake, row.staked_amount)
-      end
+    for _, row in ipairs(rows) do
+      effective_stake = BintUtils.add(effective_stake, row.staked_amount)
+    end
   end
   return effective_stake
 end
@@ -384,7 +384,7 @@ function PoolMgrDAO:getTotalEffectiveStakeAmountInPool(pool_id)
   local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
 
   local sql = [[
-      SELECT staked_amount 
+      SELECT staked_amount
       FROM user_active_stake_portions
       WHERE pool_id = ? AND staked_at <= ?;
   ]]
@@ -392,9 +392,9 @@ function PoolMgrDAO:getTotalEffectiveStakeAmountInPool(pool_id)
 
   local total_effective_stake_amount = '0'
   if rows then
-      for _, row in ipairs(rows) do
-          total_effective_stake_amount = BintUtils.add(total_effective_stake_amount, row.staked_amount)
-      end
+    for _, row in ipairs(rows) do
+      total_effective_stake_amount = BintUtils.add(total_effective_stake_amount, row.staked_amount)
+    end
   end
   return total_effective_stake_amount
 end
@@ -407,7 +407,7 @@ function PoolMgrDAO:getGlobalTotalEffectiveStake()
   local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
 
   local sql = [[
-      SELECT staked_amount 
+      SELECT staked_amount
       FROM user_active_stake_portions
       WHERE staked_at <= ?;
   ]]
@@ -415,9 +415,9 @@ function PoolMgrDAO:getGlobalTotalEffectiveStake()
 
   local global_total_effective_stake = '0'
   if rows then
-      for _, row in ipairs(rows) do
-          global_total_effective_stake = BintUtils.add(global_total_effective_stake, row.staked_amount)
-      end
+    for _, row in ipairs(rows) do
+      global_total_effective_stake = BintUtils.add(global_total_effective_stake, row.staked_amount)
+    end
   end
   return global_total_effective_stake
 end
@@ -445,7 +445,6 @@ function PoolMgrDAO:getEligibleStakersInPool(pool_id)
   return eligible_stakers or {}
 end
 
-
 --- Records an interest distribution event.
 -- @param user_wallet_address User's AR address.
 -- @param pool_id Pool ID where stake was held.
@@ -467,11 +466,11 @@ function PoolMgrDAO:recordInterestDistribution(user_wallet_address, pool_id, amo
   local params = { user_wallet_address, pool_id, amount, stake_amount, current_time }
   local success, _ = self.dbAdmin:apply(sql, params)
   if success then
-      Logger.info("Recorded interest distribution for " .. user_wallet_address .. " in pool " .. pool_id .. ": " .. amount)
-      return true
+    Logger.info("Recorded interest distribution for " .. user_wallet_address .. " in pool " .. pool_id .. ": " .. amount)
+    return true
   else
-      Logger.error("Failed to record interest distribution for " .. user_wallet_address .. " in pool " .. pool_id)
-      return false
+    Logger.error("Failed to record interest distribution for " .. user_wallet_address .. " in pool " .. pool_id)
+    return false
   end
 end
 
@@ -484,19 +483,18 @@ function PoolMgrDAO:getTotalDistributedInterest(wallet_address, pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local sql = [[
-      SELECT * 
+      SELECT *
       FROM interest_distributions
       WHERE user_wallet_address = ? AND pool_id = ?;
   ]]
   local result = self.dbAdmin:select(sql, { wallet_address, pool_id })
   local total_interest = '0'
   if result then
-      for _, row in ipairs(result) do
-          total_interest = BintUtils.add(total_interest, row.amount)
-      end
+    for _, row in ipairs(result) do
+      total_interest = BintUtils.add(total_interest, row.amount)
+    end
   end
   return total_interest
 end
-
 
 return PoolMgrDAO
