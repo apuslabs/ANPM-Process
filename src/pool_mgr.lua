@@ -20,7 +20,11 @@ end
 
 function getPools()
   for pool_id, pool in pairs(Pools) do
-    pool.apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].cur_staking) * 365
+    if Pools[pool_id].cur_staking == "0" then
+      pool.apr = ""
+    else
+      pool.apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].cur_staking) * 365
+    end
   end
   return json.encode(Pools)
 end
@@ -31,9 +35,6 @@ end
 
 function getInfo()
   return json.encode({
-    process_id = ao.id,
-    owner = Owner,
-    apus_token = ApusTokenId,
     credit_exchange_rate = CreditExchangeRate,
   })
 end
@@ -46,7 +47,7 @@ if InitialCache == 'INCOMPLETE' then
     credits = getCredits(),
     pools = getPools(),
     stakers = getStakers(),
-    info = getInfo()
+    process_info = getInfo()
   })
   InitialCache = 'COMPLETE'
 end
@@ -80,8 +81,6 @@ function UpdatePool(pool_id, rewards_amount)
     Logger.warn("Pool not found: " .. pool_id)
   end
 end
-
-Logger.info('Pool Manager Process  Started. Owner16')
 
 -- Credits handlers
 Handlers.add(
@@ -178,8 +177,9 @@ Handlers.add(
     end
     Logger.info("Processing credit transfer for " .. user .. " to pool " .. pool_id .. ", Amount: " .. quantity)
 
-
     Undistributed_Credits[user] = BintUtils.subtract(pool_balance, quantity)
+
+    PoolMgrDb:recordCreditTransaction(ref, user, "add", quantity, pool_id)
     -- Send notification to the target Pool process
     ao.send({
       Target = pool_id,
@@ -189,12 +189,6 @@ Handlers.add(
       Quantity = quantity
     })
 
-    PoolMgrDb:recordCreditTransaction(ref, user, "add", quantity, pool_id)
-    -- Send confirmation back to user
-    msg.reply({
-      Tags = { Code = "200" },
-      Data = json.encode({ user = user, balance = BintUtils.toBalanceValue(Undistributed_Credits[user] or '0') })
-    })
     Send({
       device = 'patch@1.0',
       credits = getCredits()
@@ -472,12 +466,9 @@ Initialized = Initialized or false
   if Initialized == false then
     Initialized = true
   else
-    print("Already Initialized. Skip Initialization.")
     return
   end
-  print("Initializing ...")
   local pool1 = createPool("16YUaa019q9gKL6vYFLICP-c-Kpv0p2WeUfeYJHPBzw", "Alex", "20000000000000000", "100000000000000",
     "Today", "1746449098000")
   Pools[pool1.pool_id] = pool1
-  assert(next(Pools) ~= nil, "Initiali First pool failed")
 end)()
