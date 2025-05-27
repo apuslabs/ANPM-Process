@@ -11,7 +11,7 @@ Logger.LogLevel     = "trace"
 Credits             = Credits or {} -- Load from state if available
 -- Oracles: Map<node_id, owner_address>
 Oracles             = Oracles or {} -- Load from state if available
-
+ProcessIds          = ProcessIds or {} -- Load from state if available
 -- Constants from Config
 POOL_MGR_PROCESS_ID = POOL_MGR_PROCESS_ID or Config.PoolMgrProcessId
 TASK_COST           = Config.TaskCost
@@ -36,6 +36,9 @@ end
 function getTasks()
   return JSON.encode(PoolDb:getAllTasks())
 end
+function getProcessIds()
+  return JSON.encode(ProcessIds)
+end
 
 -- Cache state on spawn
 InitialCache = InitialCache or 'INCOMPLETE'
@@ -46,7 +49,9 @@ if InitialCache == 'INCOMPLETE' then
     oracles = getOracles(),
     pending_taskcount = getPendingTaskCount(),
     tasks = getTasks(),
-    task_statistics = getTaskStatistics()
+    task_statistics = getTaskStatistics(),
+    process_ids = getProcessIds()
+
   })
   InitialCache = 'COMPLETE'
 end
@@ -56,7 +61,7 @@ function updateTaskState()
     device = 'patch@1.0',
     pending_taskcount = getPendingTaskCount(),
     tasks = getTasks(),
-    task_statistics = getTaskStatistics()
+    task_statistics = getTaskStatistics(),
   })
 end
 
@@ -95,6 +100,45 @@ Handlers.add(
       device = 'patch@1.0',
       credits = getCredits()
     })
+  end
+)
+--- Handler: Add-ProcessId
+-- Description: Associates a process ID with a wallet address.
+Handlers.add(
+  "Add-ProcessId",
+  { Action = "Add-ProcessId" },
+  function(msg)
+    local user = msg.From
+    local data = JSON.decode(msg.Data)
+    local process_id = data.process_id
+
+    -- Validate input
+    if not process_id or type(process_id) ~= "string" or process_id == "" then
+      Logger.warn("Add-ProcessId failed: Missing or invalid process_id from " .. user)
+      msg.reply({
+        Tags = { Code = "400" },
+        Data = "Missing or invalid process_id"
+      })
+      return
+    end
+
+
+    -- Store process_id → wallet mapping
+    ProcessIds[process_id] = user
+    
+    Logger.info("Added Process ID for user " .. user .. ": " .. process_id)
+    -- Broadcast update
+    Send({
+      device = 'patch@1.0',
+      process_ids = getProcessIds() -- Update any UI or state tracking
+    })
+    -- Confirm success
+    msg.reply({
+      Tags = { Code = "200", Action = "ProcessId-Added" },
+      Data = JSON.encode({ user = user, process_id = process_id })
+    })
+
+
   end
 )
 
@@ -165,6 +209,12 @@ Handlers.add(
         Data = "Missing or invalid prompt"
       })
       return
+    end
+
+    -- Determine actual wallet owner if sender is a process ID
+    if ProcessIds[user] then
+      user = ProcessIds[user]
+      Logger.info("Process ID " .. user .. " resolved to wallet " .. ProcessIds[user])
     end
 
     -- Check User Credit Balance

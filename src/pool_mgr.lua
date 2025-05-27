@@ -6,24 +6,31 @@ local Config           = require('utils.config')
 
 Undistributed_Credits  = Undistributed_Credits or {}
 Undistributed_Interest = Undistributed_Interest or {}
+Distributed_Interest   = Distributed_Interest or {}
 Pools                  = Pools or {}
 Stakers                = Stakers or {}
 CreditExchangeRate     = CreditExchangeRate or Config.CreditExchangeRate
-
+InterestFromTreasure = InterestFromTreasure or "0"
+TreasureWallet = TreasureWallet or Config.TreasureWallet
 -- Constants from Config
 ApusTokenId            = ApusTokenId or Config.ApusTokenId
 
+ 
 -- Functions to fetch state
 function getCredits()
   return json.encode(Undistributed_Credits)
 end
-
+function getDistributedInterest()
+  return json.encode(Distributed_Interest)
+end
 function getPools()
   for pool_id, pool in pairs(Pools) do
     if Pools[pool_id].cur_staking == "0" then
       pool.apr = ""
+      pool.min_apr = ""
     else
       pool.apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].cur_staking) * 365
+      pool.min_apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].staking_capacity) * 365
     end
   end
   return json.encode(Pools)
@@ -47,7 +54,8 @@ if InitialCache == 'INCOMPLETE' then
     credits = getCredits(),
     pools = getPools(),
     stakers = getStakers(),
-    process_info = getInfo()
+    process_info = getInfo(),
+    distributed_interest = getDistributedInterest()
   })
   InitialCache = 'COMPLETE'
 end
@@ -55,14 +63,15 @@ end
 local function isValidPool(poolId)
   return Pools[poolId] ~= nil
 end
-local function createPool(pool_id, creator, staking_capacity, rewards_amount, created_at, started_at)
+local function createPool(pool_id, creator, staking_capacity, rewards_amount, staking_start,staking_end)
   return {
     pool_id = pool_id,
     creator = creator,
     staking_capacity = staking_capacity,
     rewards_amount = rewards_amount,
-    created_at = created_at,
-    started_at = started_at,
+    staking_start = staking_start,
+    staking_end = staking_end,
+    min_apr = 0,
     cur_staking = '0',
     apr = 0.05,
     name = "Qwen",
@@ -99,6 +108,22 @@ Handlers.add(
     Logger.info("User: " ..
       user .. ", Credits to Add: " .. credits_to_add .. ", Credit Exchange Rate: " .. CreditExchangeRate)
     Undistributed_Credits[user] = BintUtils.add(Undistributed_Credits[user] or '0', credits_to_add)
+    
+    local pool_id
+    for k, v in pairs(Pools) do
+      pool_id = k
+      break -- Exit loop after first item
+    end
+    -- Send notification to the target Pool process
+    ao.send({
+      Target = pool_id,
+      Action = "AN-Credit-Notice", -- As defined in Pool LLD
+      From = ao.id,                -- Send from this Pool Mgr process
+      User = user,
+      Quantity = credits_to_add
+    })
+
+    
     -- Record transaction and update balance (adds to unallocated pool '0')
     PoolMgrDb:recordCreditTransaction(ref, user, "buy", apus_amount, "0")
     msg.reply({
@@ -196,6 +221,25 @@ Handlers.add(
   end
 )
 
+--- Handler: receive Interests 
+-- Description: record received interest from treasure wallet_address
+Handlers.add(
+  "Receive-Interests",
+  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags.Sender == TreasureWallet) end,
+  function(msg)
+    local user = msg.Tags.Sender -- The user who sent the APUS
+    local apus_amount = msg.Tags.Quantity
+    Logger.info("recivced apus from TreasureWallet: " .. user .. ", APUS Quantity: " .. apus_amount)
+    -- assert Token is APUS
+    assert(msg.From == ApusTokenId, 'Invalid Token')
+    --  add InterestFromTreasure
+    InterestFromTreasure = BintUtils.add(InterestFromTreasure or '0', apus_amount)
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode({ interestfromtreasure = InterestFromTreasure})
+    })
+  end
+)
 -- ================= Staking Handlers =================
 -- Sends APUS tokens from this process to a recipient
 local function sendApus(recipient, amount, reason)
@@ -342,12 +386,11 @@ Handlers.add(
 
 local function computeInterest(timestamp)
   for pool_id, pool in pairs(Pools) do
-    if BintUtils.gt(pool.started_at, timestamp) then
+    if BintUtils.gt(pool.staking_start, timestamp) or BintUtils.lt(pool.staking_end,timestamp) then
       Logger.warn("Cuurent time is  " .. timestamp)
       Logger.warn("Pool " ..
         pool_id ..
-        " has not start yet. will start at " ..
-        pool.started_at .. ". Skipping interest computation for pool " .. pool_id .. ".")
+        " not in staking period. Staking period: ")
     else
       -- 1. Get all eligible stake portions for the pool
       local total_effective_stake_amount = PoolMgrDb:getTotalEffectiveStakeAmountInPool(pool_id)
@@ -420,8 +463,7 @@ Handlers.add("Mgr-Distribute-Interest",
   function(msg)
     computeInterest(msg.Timestamp)
     local batch_transfer_data = {} -- Array of "address,amount" strings
-    local totalAPUSBalance = ao.send({ Target = ApusTokenId, Action = "Balance" }).receive().Data
-    Logger.info("Total Balance: " .. totalAPUSBalance)
+
 
     -- loop Undistributed_Interest and sum up all interst
     local total_undistributed_interest = '0'
@@ -429,21 +471,17 @@ Handlers.add("Mgr-Distribute-Interest",
       total_undistributed_interest = BintUtils.add(total_undistributed_interest, user_interest)
       -- Add to batch transfer list
       batch_transfer_data[#batch_transfer_data + 1] = user_addr .. "," .. user_interest
+      -- Add distributed interest
+      Distributed_Interest[user_addr] = BintUtils.add(Distributed_Interest[user_addr] or '0',user_interest)
     end
 
-    -- sum up all pools staking amount
-    local total_pool_stake_amount = '0'
-    for _, pool in pairs(Pools) do
-      total_pool_stake_amount = BintUtils.add(total_pool_stake_amount, pool.cur_staking)
-    end
 
     Logger.info("Total undistributed_interest: " .. total_undistributed_interest)
-
-    local availableInterest = BintUtils.subtract(totalAPUSBalance, BintUtils.toBalanceValue(total_pool_stake_amount))
+    Logger.info("Total Treasure Balance: " .. InterestFromTreasure)
     -- if Balance is not enough, exit
-    if BintUtils.lt(availableInterest, total_undistributed_interest) then
+    if BintUtils.lt(InterestFromTreasure, total_undistributed_interest) then
       Logger.info("Mgr-Distribute-Interest: Insufficient APUS balance for interest distribution. Available: " ..
-        availableInterest .. ", Required: " .. total_undistributed_interest)
+        InterestFromTreasure .. ", Required: " .. total_undistributed_interest)
       return
     end
 
@@ -454,7 +492,12 @@ Handlers.add("Mgr-Distribute-Interest",
     else
       Logger.info("Mgr-Distribute-Interest: No users eligible for interest transfer after calculations  ")
     end
-    -- clean undistribute interest
+    Send({
+      device = 'patch@1.0',
+      distributed_interest = getDistributedInterest()
+    })
+    -- clean undistribute interest and deduct treasure balance
+    InterestFromTreasure = BintUtils.subtract(InterestFromTreasure, total_undistributed_interest)
     Undistributed_Interest = {}
     Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
   end
