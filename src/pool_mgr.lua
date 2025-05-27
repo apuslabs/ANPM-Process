@@ -94,7 +94,7 @@ end
 -- Credits handlers
 Handlers.add(
   "Buy-Credit",
-  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Buy-Credit") end,
+  { Action = "Credit-Notice", ['X-An-Reason'] = "Buy-Credit", From = ApusTokenId },
   function(msg)
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
@@ -141,7 +141,7 @@ Handlers.add(
 -- Description: User transfer their credits from a specific pool.
 Handlers.add(
   "Transfer-Credits",
-  Handlers.utils.hasMatchingTag("Action", "AN-Credit-Notice"),
+  { Action = "AN-Credit-Notice" },
   function(msg)
     local user = msg.Tags.User
     local quantity = msg.Tags.Quantity
