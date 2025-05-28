@@ -10,8 +10,8 @@ Distributed_Interest   = Distributed_Interest or {}
 Pools                  = Pools or {}
 Stakers                = Stakers or {}
 CreditExchangeRate     = CreditExchangeRate or Config.CreditExchangeRate
-InterestFromTreasure = InterestFromTreasure or "0"
-TreasureWallet = TreasureWallet or Config.TreasureWallet
+InterestFromTreasure   = InterestFromTreasure or "0"
+TreasureWallet         = TreasureWallet or Config.TreasureWallet
 -- Constants from Config
 ApusTokenId            = ApusTokenId or Config.ApusTokenId
 
@@ -27,10 +27,9 @@ function getPools()
   for pool_id, pool in pairs(Pools) do
     if Pools[pool_id].cur_staking == "0" then
       pool.apr = ""
-      pool.min_apr = ""
     else
       pool.apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].cur_staking) * 365
-      pool.min_apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].staking_capacity) * 365
+    pool.min_apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].staking_capacity) * 365
     end
   end
   return json.encode(Pools)
@@ -46,19 +45,7 @@ function getInfo()
   })
 end
 
--- Cache state on spawn
-InitialCache = InitialCache or 'INCOMPLETE'
-if InitialCache == 'INCOMPLETE' then
-  Send({
-    device = 'patch@1.0',
-    credits = getCredits(),
-    pools = getPools(),
-    stakers = getStakers(),
-    process_info = getInfo(),
-    distributed_interest = getDistributedInterest()
-  })
-  InitialCache = 'COMPLETE'
-end
+
 
 local function isValidPool(poolId)
   return Pools[poolId] ~= nil
@@ -79,7 +66,7 @@ local function createPool(pool_id, creator, staking_capacity, rewards_amount, st
     image_url = "https://qianwen-res.oss-accelerate-overseas.aliyuncs.com/qwen3-banner.png",
   }
 end
-function UpdatePool(pool_id, rewards_amount)
+function UpdatePoolRewards(pool_id, rewards_amount)
   local pool = Pools[pool_id]
   if pool then
     if rewards_amount then
@@ -91,6 +78,27 @@ function UpdatePool(pool_id, rewards_amount)
   end
 end
 
+function UpdatePoolID(old_id, new_id)
+  -- Check if the old pool ID exists
+  if not Pools[old_id] then
+    Logger.warn("UpdatePoolID failed:  pool ID '" .. old_id .. "' does not exist.")
+    return
+  end
+
+  -- Check if the new pool ID already exists
+  if Pools[new_id] then
+    Logger.warn("UpdatePoolID failed: New pool ID '" .. new_id .. "' already exists.")
+    return
+  end
+
+  -- Copy the pool data to the new ID and remove the old ID
+  Pools[new_id] = Pools[old_id]
+  Pools[new_id].pool_id = new_id
+  Pools[old_id] = nil
+
+  Logger.info("Successfully updated pool ID from '" .. old_id .. "' to '" .. new_id .. "'.")
+end
+
 -- Credits handlers
 Handlers.add(
   "Buy-Credit",
@@ -100,8 +108,6 @@ Handlers.add(
     local apus_amount = msg.Tags.Quantity
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     Logger.info("Processing Buy-Credit from User: " .. user .. ", APUS Quantity: " .. apus_amount)
-    -- assert Token is APUS
-    assert(msg.From == ApusTokenId, 'Invalid Token')
     -- Calculate credits to add
 
     local credits_to_add = BintUtils.multiply(apus_amount, CreditExchangeRate)
@@ -259,15 +265,14 @@ end
 
 Handlers.add(
   "Mgr-Stake",
-  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags['X-AN-Reason'] == "Stake") end,
+  { Action = "Credit-Notice", ['X-An-Reason'] = "Stake", From = ApusTokenId },
   function(msg)
-    local pool_id = msg.Tags["X-PoolId"]
+    local pool_id = msg.Tags["X-Poolid"]
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
 
 
     assert(type(pool_id) == 'string', 'Missing X-PoolId')
-    assert(msg.From == ApusTokenId, 'Invalid Token')
     -- Check if pool exists and get capacity
     local pool = Pools[pool_id]
     if not pool then
@@ -329,7 +334,7 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
   function(msg)
     local user = msg.From
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags.Poolid
     local amount_to_unstake = msg.Tags.Quantity
     local pool = Pools[pool_id]
     -- Validate input
@@ -504,14 +509,20 @@ Handlers.add("Mgr-Distribute-Interest",
 )
 -- Initialization flag to prevent re-initialization
 Initialized = Initialized or false
--- Immediately Invoked Function Expression (IIFE) for initialization logic
-(function()
-  if Initialized == false then
-    Initialized = true
-  else
-    return
-  end
-  local pool1 = createPool("16YUaa019q9gKL6vYFLICP-c-Kpv0p2WeUfeYJHPBzw", "Alex", "20000000000000000", "100000000000000",
-    "Today", "1746449098000")
+
+if Initialized == false then
+  Initialized = true
+  local pool1 = createPool("16YUaa019q9gKL6vYFLICP-c-Kpv0p2WeUfeYJHPBzw", "Alex", "5000000000000000000", "2054000000000000",
+  "1748397808297", "1757390400000")
   Pools[pool1.pool_id] = pool1
-end)()
+  Send({
+    device = 'patch@1.0',
+    credits = getCredits(),
+    pools = getPools(),
+    stakers = getStakers(),
+    process_info = getInfo(),
+    distributed_interest = getDistributedInterest()
+  })
+end
+
+
