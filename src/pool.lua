@@ -62,6 +62,7 @@ function updateTaskState()
     pending_taskcount = getPendingTaskCount(),
     tasks = getTasks(),
     task_statistics = getTaskStatistics(),
+    process_ids = getProcessIds()
   })
 end
 
@@ -105,12 +106,16 @@ Handlers.add(
 --- Handler: Add-ProcessId
 -- Description: Associates a process ID with a wallet address.
 Handlers.add(
-  "Add-ProcessId",
-  { Action = "Add-ProcessId" },
+  "Add-Processid",
+  { Action = "Add-Processid" },
   function(msg)
     local user = msg.From
     local data = JSON.decode(msg.Data)
     local process_id = data.process_id
+    local name = data.name
+    local created_at = os.time()
+    local created_by = user
+
 
     -- Validate input
     if not process_id or type(process_id) ~= "string" or process_id == "" then
@@ -124,7 +129,12 @@ Handlers.add(
 
 
     -- Store process_id → wallet mapping
-    ProcessIds[process_id] = user
+    ProcessIds[process_id] = {
+      name = name,
+      created_at = created_at,
+      created_by = created_by,
+      last_used = ""
+    }
     
     Logger.info("Added Process ID for user " .. user .. ": " .. process_id)
     -- Broadcast update
@@ -138,7 +148,66 @@ Handlers.add(
       Data = JSON.encode({ user = user, process_id = process_id })
     })
 
+  end
+)
 
+
+-- Handler: Remove-Processid
+-- Description: Removes the association of a process ID with a wallet address.
+Handlers.add(
+  "Remove-Processid",
+  { Action = "Remove-Processid" },
+  function(msg)
+    local user = msg.From
+    local data = JSON.decode(msg.Data)
+    local process_id = data.process_id
+
+    -- Validate input
+    if not process_id or type(process_id) ~= "string" or process_id == "" then
+      Logger.warn("Delete-ProcessId failed: Missing or invalid process_id from " .. user)
+      msg.reply({
+        Tags = { Code = "400" },
+        Data = "Missing or invalid process_id"
+      })
+      return
+    end
+
+    -- Check if the process_id exists
+    if not ProcessIds[process_id] then
+      Logger.warn("Delete-ProcessId failed: Process ID '" .. process_id .. "' does not exist.")
+      msg.reply({
+        Tags = { Code = "404" },
+        Data = "Process ID does not exist."
+      })
+      return
+    end
+
+    -- Ensure the requesting user owns this process_id
+    if ProcessIds[process_id]["created_by"] ~= user then
+      Logger.warn("Delete-ProcessId failed: User " .. user .. " is not authorized to delete process_id " .. process_id)
+      msg.reply({
+        Tags = { Code = "403" },
+        Data = "Unauthorized: You do not own this process ID."
+      })
+      return
+    end
+
+    -- Remove the process_id from the mapping
+    ProcessIds[process_id] = nil
+
+    Logger.info("Deleted Process ID for user " .. user .. ": " .. process_id)
+
+    -- Broadcast update
+    Send({
+      device = 'patch@1.0',
+      process_ids = getProcessIds() -- Update any UI or state tracking
+    })
+
+    -- Confirm success
+    msg.reply({
+      Tags = { Code = "200", Action = "ProcessId-removed" },
+      Data = JSON.encode({ user = user, process_id = process_id })
+    })
   end
 )
 
@@ -188,10 +257,10 @@ Handlers.add(
   "Add-Task",
   { Action = "Add-Task" },
   function(msg)
-    local user = msg.From
+    local from = msg.From
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     if not ref then
-      Logger.error("Add-Task failed: Missing reference ID from " .. user)
+      Logger.error("Add-Task failed: Missing reference ID from " .. from)
       msg.reply({
         Tags = { Code = "400" },
         Data = "Missing reference ID"
@@ -201,41 +270,42 @@ Handlers.add(
     local data = JSON.decode(msg.Data)
     local prompt = data.prompt
     local config = data.config or [[{"n_gpu_layers":48,"ctx_size":20480}]] -- Optional
-
     if not prompt or type(prompt) ~= "string" or prompt == "" then
-      Logger.warn("Add-Task failed: Missing or invalid prompt from " .. user)
+      Logger.warn("Add-Task failed: Missing or invalid prompt from " .. from)
       msg.reply({
         Tags = { Code = "400" },
         Data = "Missing or invalid prompt"
       })
       return
     end
-
+    local user = ""
     -- Determine actual wallet owner if sender is a process ID
-    if ProcessIds[user] then
-      user = ProcessIds[user]
-      Logger.info("Process ID " .. user .. " resolved to wallet " .. ProcessIds[user])
+    if ProcessIds[from] then
+      user = ProcessIds[from]["created_by"] 
+    else
+      user = from
     end
 
     -- Check User Credit Balance
-    local current_balance = Credits[user] or '0'
+    local current_balance = Credits[user] or "0"
     if BintUtils.lt(current_balance, TASK_COST) then
       Logger.warn("Add-Task failed: Insufficient credits for user " ..
-        user .. ". Balance: " .. current_balance .. ", Cost: " .. TASK_COST)
+        from .. ". Balance: " .. current_balance .. ", Cost: " .. TASK_COST)
       msg.reply({ Tags = { Code = "403" }, Data = "Insufficient credits" })
       return
     end
 
-    Logger.trace("Processing Add-Task from User: " .. user .. ", Prompt: " .. prompt .. ", Config: " .. config)
-
     -- Deduct Credit
     Credits[user] = BintUtils.subtract(current_balance, TASK_COST)
-
+    -- update last_updated
+    if ProcessIds[from] then
+       ProcessIds[from]["last_used"] = os.time()
+    end
     -- Add Task to Database
     PoolDb:addTask(ref, user, prompt, config)
 
     Logger.trace("Task added to database with ref: " .. ref .. ", User: " .. user .. ", Cost: " .. TASK_COST)
-
+    -- Broadcast update
     updateTaskState()
   end
 )

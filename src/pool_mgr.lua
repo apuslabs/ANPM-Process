@@ -11,7 +11,7 @@ Pools                  = Pools or {}
 Stakers                = Stakers or {}
 CreditExchangeRate     = CreditExchangeRate or Config.CreditExchangeRate
 InterestFromTreasure   = InterestFromTreasure or "0"
-TreasureWallet         = TreasureWallet or Config.TreasureWallet
+
 -- Constants from Config
 ApusTokenId            = ApusTokenId or Config.ApusTokenId
 
@@ -231,7 +231,7 @@ Handlers.add(
 -- Description: record received interest from treasure wallet_address
 Handlers.add(
   "Receive-Interests",
-  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags.Sender == TreasureWallet) end,
+  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags.Sender == Config.TreasureWallet) end,
   function(msg)
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
