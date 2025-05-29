@@ -127,7 +127,6 @@ Handlers.add(
     ao.send({
       Target = pool_id,
       Action = "AN-Credit-Notice", -- As defined in Pool LLD
-      From = ao.id,                -- Send from this Pool Mgr process
       User = user,
       Quantity = credits_to_add
     })
@@ -189,7 +188,7 @@ Handlers.add(
   function(msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
-    local pool_id = msg.Tags.poolid
+    local pool_id = msg.Tags.Poolid
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     -- Validate pool_id and quantity
     assert(type(user) == 'string', 'user is required!')
@@ -219,8 +218,8 @@ Handlers.add(
       Target = pool_id,
       Action = "AN-Credit-Notice", -- As defined in Pool LLD
       From = ao.id,                -- Send from this Pool Mgr process
-      User = user,
-      Quantity = quantity
+      user = user,
+      quantity = quantity
     })
 
     Send({
@@ -262,7 +261,7 @@ local function sendApus(recipient, amount, reason)
     Action = "Transfer",
     Recipient = recipient,
     Quantity = amount,
-    ['X-AN-Reason'] = reason -- Add reason for context
+    ['X-An-Reason'] = reason -- Add reason for context
   })
 end
 
@@ -270,7 +269,7 @@ Handlers.add(
   "Mgr-Stake",
   { Action = "Credit-Notice", ['X-An-Reason'] = "Stake", From = ApusTokenId },
   function(msg)
-    local pool_id = msg.Tags["X-poolid"]
+    local pool_id = msg.Tags["X-Poolid"]
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
 
@@ -337,7 +336,7 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
   function(msg)
     local user = msg.From
-    local pool_id = msg.Tags.poolid
+    local pool_id = msg.Tags.Poolid
     local amount_to_unstake = msg.Tags.Quantity
     local pool = Pools[pool_id]
     -- Validate input
@@ -523,7 +522,7 @@ Initialized = Initialized or false
 if Initialized == false then
   Initialized = true
   local pool1 = createPool("1", "APUS_network", "5000000000000000000", "2054000000000000",
-  "1748397808297", "1757390400000")
+  "1749398400000", "1757390400000")
   Pools[pool1.pool_id] = pool1
   Send({
     device = 'patch@1.0',

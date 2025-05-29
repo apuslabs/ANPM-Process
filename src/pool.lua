@@ -314,10 +314,10 @@ Handlers.add(
 -- Description: Finds a pending task, marks it as processing, and returns it to a registered Oracle.
 Handlers.add(
   "Get-Pending-Task",
-  { Action = "Get-Pending-Task", NodeID = "_" },
+  { Action = "Get-Pending-Task", Nodeid = "_" },
   function(msg)
     local oracle_owner = msg.From
-    local oracle_node_id = msg.Tags.NodeID -- Oracles should identify themselves with their Node ID
+    local oracle_node_id = msg.Tags.Nodeid -- Oracles should identify themselves with their Node ID
 
     -- Permission Check: Must be a registered Oracle owner AND provide their node ID
     local is_node_registered = false
