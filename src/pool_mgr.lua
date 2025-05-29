@@ -25,11 +25,11 @@ function getDistributedInterest()
 end
 function getPools()
   for pool_id, pool in pairs(Pools) do
+    pool.min_apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].staking_capacity) * 365
     if Pools[pool_id].cur_staking == "0" then
       pool.apr = ""
     else
       pool.apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].cur_staking) * 365
-    pool.min_apr = BintUtils.divide(Pools[pool_id].rewards_amount, Pools[pool_id].staking_capacity) * 365
     end
   end
   return json.encode(Pools)
@@ -62,7 +62,7 @@ local function createPool(pool_id, creator, staking_capacity, rewards_amount, st
     cur_staking = '0',
     apr = 0.05,
     name = "Qwen",
-    description = "First Pool description",
+    description = "In HyperBeam’s initial implementation of the Deterministic GPU Device—enabling verifiable AI on AO. Users can earn interest by staking APUS, and they can also tap GPU computing power to perform fully on‑chain, verifiable AI inference. ",
     image_url = "https://qianwen-res.oss-accelerate-overseas.aliyuncs.com/qwen3-banner.png",
   }
 end
@@ -476,8 +476,7 @@ Handlers.add("Mgr-Distribute-Interest",
       total_undistributed_interest = BintUtils.add(total_undistributed_interest, user_interest)
       -- Add to batch transfer list
       batch_transfer_data[#batch_transfer_data + 1] = user_addr .. "," .. user_interest
-      -- Add distributed interest
-      Distributed_Interest[user_addr] = BintUtils.add(Distributed_Interest[user_addr] or '0',user_interest)
+
     end
 
 
@@ -494,16 +493,24 @@ Handlers.add("Mgr-Distribute-Interest",
     if #batch_transfer_data > 0 then
       local csv_data_string = table.concat(batch_transfer_data, "\n")
       ao.send({ Target = ApusTokenId, Tags = { Cast = "true", Action = "Batch-Transfer" }, Data = csv_data_string })
+      
+      for user_addr, user_interest in pairs(Undistributed_Interest) do
+      -- Add distributed interest
+        Distributed_Interest[user_addr] = BintUtils.add(Distributed_Interest[user_addr] or '0',user_interest)
+      end
+      
+      -- clean undistribute interest and deduct treasure balance
+      InterestFromTreasure = BintUtils.subtract(InterestFromTreasure, total_undistributed_interest)
+      Undistributed_Interest = {}
     else
       Logger.info("Mgr-Distribute-Interest: No users eligible for interest transfer after calculations  ")
     end
+    
     Send({
       device = 'patch@1.0',
       distributed_interest = getDistributedInterest()
     })
-    -- clean undistribute interest and deduct treasure balance
-    InterestFromTreasure = BintUtils.subtract(InterestFromTreasure, total_undistributed_interest)
-    Undistributed_Interest = {}
+
     Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
   end
 )
@@ -512,7 +519,7 @@ Initialized = Initialized or false
 
 if Initialized == false then
   Initialized = true
-  local pool1 = createPool("16YUaa019q9gKL6vYFLICP-c-Kpv0p2WeUfeYJHPBzw", "Alex", "5000000000000000000", "2054000000000000",
+  local pool1 = createPool("1", "APUS_network", "5000000000000000000", "2054000000000000",
   "1748397808297", "1757390400000")
   Pools[pool1.pool_id] = pool1
   Send({

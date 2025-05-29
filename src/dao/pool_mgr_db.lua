@@ -9,6 +9,8 @@ PoolMgrDb = PoolMgrDb or sqlite3.open_memory()
 LogLevel = LogLevel or 'info'
 local PoolMgrDAO = {}
 PoolMgrDAO.__index = PoolMgrDAO
+-- local Valid_Staking_Time = 24 * 60 * 60 * 1000
+Valid_Staking_Time = 60*1000*2
 
 -- Database Initialization
 local function initialize_database(db_admin)
@@ -345,8 +347,7 @@ function PoolMgrDAO:getAllStakeRecords()
   return results
 end
 
--- local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60 * 1000
-local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 60
+
 --[[
   Gets the total *effective* staked amount for a user in a specific pool.
   Effective stake is stake held for >= 24 hours.
@@ -356,7 +357,7 @@ function PoolMgrDAO:getEffectiveUserStake(user_wallet_address, pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local current_time = math.floor(os.time())
-  local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local eligibility_threshold_time = current_time - Valid_Staking_Time
 
   local sql = [[
       SELECT staked_amount
@@ -381,7 +382,7 @@ function PoolMgrDAO:getTotalEffectiveStakeAmountInPool(pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local current_time = math.floor(os.time())
-  local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local eligibility_threshold_time = current_time - Valid_Staking_Time
 
   local sql = [[
       SELECT staked_amount
@@ -404,7 +405,7 @@ Gets the total *effective* staked amount across ALL users and ALL pools.
 --]]
 function PoolMgrDAO:getGlobalTotalEffectiveStake()
   local current_time = math.floor(os.time())
-  local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local eligibility_threshold_time = current_time - Valid_Staking_Time
 
   local sql = [[
       SELECT staked_amount
@@ -429,7 +430,7 @@ function PoolMgrDAO:getEligibleStakersInPool(pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local current_time = math.floor(os.time())
-  local twenty_four_hours_ago = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local twenty_four_hours_ago = current_time - Valid_Staking_Time
 
   -- Select stakes where the last action was more than 24 hours ago and amount > 0
   local sql = [[
