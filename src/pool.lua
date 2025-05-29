@@ -59,6 +59,7 @@ end
 function updateTaskState()
   Send({
     device = 'patch@1.0',
+    credits = getCredits(),
     pending_taskcount = getPendingTaskCount(),
     tasks = getTasks(),
     task_statistics = getTaskStatistics(),
