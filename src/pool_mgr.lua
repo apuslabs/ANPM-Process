@@ -189,7 +189,7 @@ Handlers.add(
   function(msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
-    local pool_id = msg.Tags.PoolId
+    local pool_id = msg.Tags.poolid
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     -- Validate pool_id and quantity
     assert(type(user) == 'string', 'user is required!')
@@ -270,7 +270,7 @@ Handlers.add(
   "Mgr-Stake",
   { Action = "Credit-Notice", ['X-An-Reason'] = "Stake", From = ApusTokenId },
   function(msg)
-    local pool_id = msg.Tags["X-Poolid"]
+    local pool_id = msg.Tags["X-poolid"]
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
 
@@ -337,7 +337,7 @@ Handlers.add(
   Handlers.utils.hasMatchingTag("Action", "UnStake"),
   function(msg)
     local user = msg.From
-    local pool_id = msg.Tags.Poolid
+    local pool_id = msg.Tags.poolid
     local amount_to_unstake = msg.Tags.Quantity
     local pool = Pools[pool_id]
     -- Validate input
