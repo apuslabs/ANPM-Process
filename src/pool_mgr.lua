@@ -95,7 +95,10 @@ function UpdatePoolID(old_id, new_id)
   Pools[new_id] = Pools[old_id]
   Pools[new_id].pool_id = new_id
   Pools[old_id] = nil
-
+  Send({
+    device = 'patch@1.0',
+    pools = getPools()
+  })
   Logger.info("Successfully updated pool ID from '" .. old_id .. "' to '" .. new_id .. "'.")
 end
 
