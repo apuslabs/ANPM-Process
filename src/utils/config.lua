@@ -10,7 +10,7 @@ M.APUSDenomination = "1000000000000"
 -- APUS TOken Process
 M.ApusTokenId = "5HTh33IQm5Ju3h9x3jKL5GdyPdmVWOGR4HA9x5NZX8U"
 -- Cost per AI task in credits (as a string for bint_utils)
-M.TaskCost = "1"
+M.TaskCost = "100000000000000"
 M.TreasureWallet = "69opDSKypKRhg8uW1vzAwCQch55F8owiMlyxEKYMnrU"
 -- Database file name
 M.DbName = "pool_data.db"

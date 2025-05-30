@@ -9,8 +9,7 @@ PoolMgrDb = PoolMgrDb or sqlite3.open_memory()
 LogLevel = LogLevel or 'info'
 local PoolMgrDAO = {}
 PoolMgrDAO.__index = PoolMgrDAO
--- local Valid_Staking_Time = 24 * 60 * 60 * 1000
-Valid_Staking_Time = 60*1000*2
+Valid_Staking_Time = 24 * 60 * 60 * 1000
 
 -- Database Initialization
 local function initialize_database(db_admin)
