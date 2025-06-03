@@ -193,7 +193,7 @@ function PoolDAO:getTaskByRef(ref)
 end
 
 function PoolDAO:getAllTasks()
-  local sql = [[ SELECT ref, output FROM tasks; ]]
+  local sql = [[ SELECT ref, status, output FROM tasks; ]]
   return self.dbAdmin:select(sql, {})
 end
 
