@@ -9,12 +9,14 @@ Undistributed_Interest = Undistributed_Interest or {}
 Distributed_Interest   = Distributed_Interest or {}
 Pools                  = Pools or {}
 Stakers                = Stakers or {}
-CreditExchangeRate     = CreditExchangeRate or Config.CreditExchangeRate
+
 InterestFromTreasure   = InterestFromTreasure or "0"
 
 -- Constants from Config
 ApusTokenId            = ApusTokenId or Config.ApusTokenId
-
+FeedWallet             = FeedWallet or Config.FeedWallet
+CreditExchangeRate     = CreditExchangeRate or Config.CreditExchangeRate
+TreasureWallet         = TreasureWallet or Config.TreasureWallet
  
 -- Functions to fetch state
 function getCredits()
@@ -233,7 +235,7 @@ Handlers.add(
 -- Description: record received interest from treasure wallet_address
 Handlers.add(
   "Receive-Interests",
-  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags.Sender == Config.TreasureWallet) end,
+  function(msg) return (msg.Tags.Action == 'Credit-Notice') and (msg.Tags.Sender == TreasureWallet) end,
   function(msg)
     local user = msg.Tags.Sender -- The user who sent the APUS
     local apus_amount = msg.Tags.Quantity
@@ -516,13 +518,50 @@ Handlers.add("Mgr-Distribute-Interest",
     Logger.info("Mgr-Distribute-Interest: Interest distribution process completed ")
   end
 )
+--- Handler: Set-CreditExchangeRate
+-- Description: Sets the credit exchange rate, only accepting requests from an exact address
+Handlers.add(
+  "Set-CreditExchangeRate",
+  { Action = "Set-CreditExchangeRate", From = FeedWallet },
+  function(msg)
+    local new_rate = msg.Tags.Rate
+    local requester = msg.From
+    
+    -- Validate the new rate
+    if not new_rate or BintUtils.le(new_rate, '0') then
+      Logger.warn("Set-CreditExchangeRate failed: Invalid rate value from " .. requester)
+      msg.reply({ Tags = { Code = "400", Error = "Invalid rate value. Must be a positive integer string." } })
+      return
+    end
+    
+    -- Update the credit exchange rate
+    CreditExchangeRate = new_rate
+    Logger.info("Credit exchange rate updated to " .. new_rate .. " by " .. requester)
+    
+    -- Send success response
+    msg.reply({
+      Tags = { Code = "200" },
+      Data = json.encode({ 
+        credit_exchange_rate = CreditExchangeRate,
+        updated_by = requester
+      })
+    })
+    
+    -- Broadcast the update
+    Send({
+      device = 'patch@1.0',
+      process_info = getInfo()
+    })
+  end
+)
+
 -- Initialization flag to prevent re-initialization
 Initialized = Initialized or false
 
 if Initialized == false then
   Initialized = true
-  local pool1 = createPool("1", "APUS_network", "5000000000000000000", "2054000000000000",
-  "1749398400000", "1757390400000")
+  local pool1 = createPool("1", "APUS_network", "5000000000000000000", "4109000000000000",
+  "1749499200000", "1757448000000")
   Pools[pool1.pool_id] = pool1
   Send({
     device = 'patch@1.0',

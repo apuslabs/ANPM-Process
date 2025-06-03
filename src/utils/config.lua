@@ -5,13 +5,16 @@ M.PoolMgrProcessId = "_Bd_VncRqLzxT9WqY-FZ4N_VwvIWCYl2rsAdPGtXwYg"
 
 -- CreditExchangeRate
 M.CreditExchangeRate = "1"
-M.CreditsDenomination = "1000000000000"
-M.APUSDenomination = "1000000000000"
 -- APUS TOken Process
-M.ApusTokenId = "5HTh33IQm5Ju3h9x3jKL5GdyPdmVWOGR4HA9x5NZX8U"
+M.ApusTokenId = "AgDV_J8GcSIb6NSJKPjg48aX-7FoebesFQAaWSTpwyo"
 -- Cost per AI task in credits (as a string for bint_utils)
 M.TaskCost = "100000000000000"
+-- Treasure wallet address for distribute interest 
 M.TreasureWallet = "69opDSKypKRhg8uW1vzAwCQch55F8owiMlyxEKYMnrU"
+
+-- Config wallet address for dynamic config
+M.FeedWallet = "69opDSKypKRhg8uW1vzAwCQch55F8owiMlyxEKYMnrU"
+
 -- Database file name
 M.DbName = "pool_data.db"
 
