@@ -13,7 +13,7 @@ M.TaskCost = "100000000000000"
 M.TreasureWallet = "69opDSKypKRhg8uW1vzAwCQch55F8owiMlyxEKYMnrU"
 
 -- Config wallet address for dynamic config
-M.FeedWallet = "69opDSKypKRhg8uW1vzAwCQch55F8owiMlyxEKYMnrU"
+M.FeedWallet = "DAPhinKSINxVkHVQQQq4W2WD5KCyqweigMfcJG8TIMM"
 
 -- Database file name
 M.DbName = "pool_data.db"
