@@ -14,7 +14,7 @@ Oracles             = Oracles or {} -- Load from state if available
 ProcessIds          = ProcessIds or {} -- Load from state if available
 -- Constants from Config
 POOL_MGR_PROCESS_ID = POOL_MGR_PROCESS_ID or Config.PoolMgrProcessId
-TASK_COST           = Config.TaskCost
+TASK_COST           = TASK_COST or Config.TaskCost
 
 -- Functions to fetch state
 function getCredits()

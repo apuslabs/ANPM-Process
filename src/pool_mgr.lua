@@ -64,8 +64,8 @@ local function createPool(pool_id, creator, staking_capacity, rewards_amount, st
     cur_staking = '0',
     apr = 0.05,
     name = "Qwen",
-    description = "In HyperBeam’s initial implementation of the Deterministic GPU Device—enabling verifiable AI on AO. Users can earn interest by staking APUS, and they can also tap GPU computing power to perform fully on‑chain, verifiable AI inference. ",
-    image_url = "https://comyehbnbagxwjwwov7usrq2jxhao3idvzbdtbfa6aeaix7zgesq.arweave.net/E5mCHC0IDXsm1nV_SUYaTc4HbQOuQjmEoPAIBF_5MSU",
+    description = "HyperBeam’s initial implementation of the Deterministic GPU Device—enabling verifiable AI on AO. Users can earn interest by staking APUS, and they can also tap GPU computing power to perform fully on‑chain, verifiable AI inference. ",
+    image_url = "https://dclx2h5geqluettl3fktnsh3bw76s6be4lade4w4dpvflk5xlsna.arweave.net/GJd9H6YkF0JOa9lVNsj7Db_peCTiwDJy3BvqVau3XJo",
   }
 end
 function UpdatePoolRewards(pool_id, rewards_amount)
