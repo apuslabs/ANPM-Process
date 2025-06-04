@@ -410,7 +410,7 @@ local function computeInterest(timestamp)
           Logger.info("Not yet  ")
         return
       end
-      -- Calculate how many times should be distributed
+      -- Calculate how many times should be distributed  
       local times = (timestamp - last_distributed_time) // 86400000
       Logger.info("calculated times is  ".. times)
       if last_distributed_time == 0 then
@@ -485,7 +485,7 @@ local function computeInterest(timestamp)
   end
 end
 Handlers.add("Mgr-Distribute-Interest",
-  { Action = "Cron", From = ao.id },
+  Handlers.utils.hasMatchingTag("Action", "Cron"),
   function(msg)
     Logger.info("Cron triggered ")
     computeInterest(msg.Timestamp)
