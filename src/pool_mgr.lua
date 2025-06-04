@@ -63,9 +63,10 @@ local function createPool(pool_id, creator, staking_capacity, rewards_amount, st
     min_apr = 0,
     cur_staking = '0',
     apr = 0.05,
-    name = "Qwen",
+    name = "Qwen2.5-14B",
     description = "HyperBeam’s initial implementation of the Deterministic GPU Device—enabling verifiable AI on AO. Users can earn interest by staking APUS, and they can also tap GPU computing power to perform fully on‑chain, verifiable AI inference. ",
     image_url = "https://dclx2h5geqluettl3fktnsh3bw76s6be4lade4w4dpvflk5xlsna.arweave.net/GJd9H6YkF0JOa9lVNsj7Db_peCTiwDJy3BvqVau3XJo",
+    last_distributed_time = 0
   }
 end
 function UpdatePoolRewards(pool_id, rewards_amount)
@@ -395,12 +396,28 @@ Handlers.add(
 
 local function computeInterest(timestamp)
   for pool_id, pool in pairs(Pools) do
+
+    -- Check if pool is in staking period
     if BintUtils.gt(pool.staking_start, timestamp) or BintUtils.lt(pool.staking_end,timestamp) then
-      Logger.warn("Cuurent time is  " .. timestamp)
-      Logger.warn("Pool " ..
+      Logger.info("Cuurent time is  " .. timestamp)
+      Logger.info("Pool " ..
         pool_id ..
         " not in staking period. Staking period: ")
     else
+      -- Check Last distributed_time
+      local last_distributed_time = pool.last_distributed_time
+      if last_distributed_time ~= 0 and timestamp - last_distributed_time < 86400000 then
+          Logger.info("Not yet  ")
+        return
+      end
+      -- Calculate how many times should be distributed
+      local times = (timestamp - last_distributed_time) // 86400000
+      Logger.info("calculated times is  ".. times)
+      if last_distributed_time == 0 then
+          times = 1
+      end
+      Logger.info("Final  times is  ".. times)
+      pool.last_distributed_time = timestamp
       -- 1. Get all eligible stake portions for the pool
       local total_effective_stake_amount = PoolMgrDb:getTotalEffectiveStakeAmountInPool(pool_id)
       if BintUtils.le(total_effective_stake_amount, '0') then
@@ -436,7 +453,7 @@ local function computeInterest(timestamp)
         -- Calculate user's interest: (user_effective_stake * total_daily_interest_amount) / overall_total_effective_stake
         Logger.info("User: " .. user_addr .. ", Effective Stake: " .. user_effective_stake)
         local numerator = BintUtils.multiply(user_effective_stake, daily_interest_amount)
-        local user_interest_share = floor(BintUtils.divide(numerator, overall_total_effective_stake)) -- Integer division
+        local user_interest_share = floor(BintUtils.divide(numerator, overall_total_effective_stake) * times) -- Integer division
         local user_interest_share_bint = BintUtils.toBalanceValue(user_interest_share)
         if BintUtils.gt(user_interest_share_bint, '0') then
           -- Add interst to undistribute interest
@@ -468,8 +485,9 @@ local function computeInterest(timestamp)
   end
 end
 Handlers.add("Mgr-Distribute-Interest",
-  Handlers.utils.hasMatchingTag("Action", "Cron"),
+  { Action = "Cron", From = ao.id },
   function(msg)
+    Logger.info("Cron triggered ")
     computeInterest(msg.Timestamp)
     local batch_transfer_data = {} -- Array of "address,amount" strings
 
@@ -561,7 +579,7 @@ Initialized = Initialized or false
 if Initialized == false then
   Initialized = true
   local pool1 = createPool("1", "APUS_network", "5000000000000000000", "4109000000000000",
-  "1749499200000", "1757448000000")
+    "1749499200000", "1757448000000")
   Pools[pool1.pool_id] = pool1
   Send({
     device = 'patch@1.0',
