@@ -11,7 +11,8 @@ M.ApusTokenId = "AgDV_J8GcSIb6NSJKPjg48aX-7FoebesFQAaWSTpwyo"
 M.TaskCost = "100000000000000"
 -- Treasure wallet address for distribute interest 
 M.TreasureWallet = "69opDSKypKRhg8uW1vzAwCQch55F8owiMlyxEKYMnrU"
-
+-- InterestGap in milliseconds , 4 minutes = 240000
+M.InterestGap = 86400000
 -- Config wallet address for dynamic config
 M.FeedWallet = "DAPhinKSINxVkHVQQQq4W2WD5KCyqweigMfcJG8TIMM"
 

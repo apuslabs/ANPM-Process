@@ -17,6 +17,7 @@ ApusTokenId            = ApusTokenId or Config.ApusTokenId
 FeedWallet             = FeedWallet or Config.FeedWallet
 CreditExchangeRate     = CreditExchangeRate or Config.CreditExchangeRate
 TreasureWallet         = TreasureWallet or Config.TreasureWallet
+InterestGap            = InterestGap or Config.InterestGap
  
 -- Functions to fetch state
 function getCredits()
@@ -52,30 +53,33 @@ end
 local function isValidPool(poolId)
   return Pools[poolId] ~= nil
 end
-local function createPool(pool_id, creator, staking_capacity, rewards_amount, staking_start,staking_end)
+local function createPool(pool_id, creator, staking_capacity, rewards_amount,pre_staking_time, staking_start,staking_end)
   return {
     pool_id = pool_id,
     creator = creator,
     staking_capacity = staking_capacity,
     rewards_amount = rewards_amount,
+    pre_staking_time = pre_staking_time,
     staking_start = staking_start,
     staking_end = staking_end,
     min_apr = 0,
     cur_staking = '0',
     apr = 0.05,
     name = "Qwen2.5-14B",
-    description = "HyperBeam’s initial implementation of the Deterministic GPU Device—enabling verifiable AI on AO. Users can earn interest by staking APUS, and they can also tap GPU computing power to perform fully on‑chain, verifiable AI inference. ",
+    description = "HyperBeam's initial implementation of the Deterministic GPU Device—enabling verifiable AI on AO. Users can earn interest by staking APUS, and they can also tap GPU computing power to perform fully on‑chain, verifiable AI inference. ",
     image_url = "https://dclx2h5geqluettl3fktnsh3bw76s6be4lade4w4dpvflk5xlsna.arweave.net/GJd9H6YkF0JOa9lVNsj7Db_peCTiwDJy3BvqVau3XJo",
-    last_distributed_time = 0
+    last_distributed_time = staking_start,
+    distributed_times = 0
   }
 end
-function UpdatePoolRewards(pool_id, rewards_amount)
+function UpdatePoolStartTime(pool_id)
   local pool = Pools[pool_id]
   if pool then
-    if rewards_amount then
-      pool.rewards_amount = rewards_amount
-      Logger.trace("Updated Pool: " .. pool_id .. ", Rewards Amount: " .. rewards_amount)
-    end
+    local cur_time = os.time()
+    pool.staking_start = cur_time
+    pool.last_distributed_time = cur_time
+    Send({ device = 'patch@1.0', pools = getPools() })
+    Logger.warn("Pool StartTime Updated " .. cur_time)
   else
     Logger.warn("Pool not found: " .. pool_id)
   end
@@ -396,91 +400,98 @@ Handlers.add(
 
 local function computeInterest(timestamp)
   for pool_id, pool in pairs(Pools) do
-
-    -- Check if pool is in staking period
-    if BintUtils.gt(pool.staking_start, timestamp) or BintUtils.lt(pool.staking_end,timestamp) then
-      Logger.info("Cuurent time is  " .. timestamp)
-      Logger.info("Pool " ..
-        pool_id ..
-        " not in staking period. Staking period: ")
-    else
-      -- Check Last distributed_time
-      local last_distributed_time = pool.last_distributed_time
-      if last_distributed_time ~= 0 and timestamp - last_distributed_time < 86400000 then
-          Logger.info("Not yet  ")
+    Logger.info("Current time is " .. timestamp)
+    local total_distributed_times = (pool.staking_end - pool.staking_start) // InterestGap
+    -- Case 1: Check if pool is outside staking period
+    if BintUtils.ge(pool.staking_start, timestamp) or BintUtils.le(pool.staking_end, timestamp) then
+      Logger.info("Pool " .. pool_id .. " not in staking period")
+      -- Case 2: If after staking_end but distributed_times < 100, continue distribution
+      if BintUtils.le(pool.staking_end, timestamp) and pool.distributed_times < total_distributed_times then
+        Logger.info("Pool " .. pool_id .. " after staking period but continuing distribution (times: " .. pool.distributed_times .. ")")
+        -- Continue with distribution logic
+      else
         return
       end
-      -- Calculate how many times should be distributed  
-      local times = (timestamp - last_distributed_time) // 86400000
-      Logger.info("calculated times is  ".. times)
-      if last_distributed_time == 0 then
-          times = 1
+    end
+    if pool.distributed_times > total_distributed_times then
+      Logger.info("Pool " .. pool_id .. " has distributed all ")
+      return
+    end
+    -- Case 3: Pool is in staking period or continuing distribution
+    -- Check Last distributed_time
+    local last_distributed_time = pool.last_distributed_time
+    if timestamp - last_distributed_time < InterestGap then
+      Logger.info("Not yet last_distributed_time : " .. last_distributed_time) 
+      return
+    end
+    -- Calculate how many times should be distributed  
+    local times = (timestamp - last_distributed_time) // InterestGap
+    Logger.info("calculated times is  ".. times)
+
+    pool.last_distributed_time = last_distributed_time + InterestGap * times
+    pool.distributed_times = pool.distributed_times + times
+    -- 1. Get all eligible stake portions for the pool
+    local total_effective_stake_amount = PoolMgrDb:getTotalEffectiveStakeAmountInPool(pool_id)
+    if BintUtils.le(total_effective_stake_amount, '0') then
+      Logger.info("Mgr-Distribute-Interest: No eligible stake portions found for pool " ..
+        pool_id .. ". No interest will be distributed.")
+      return
+    end
+    Logger.info("Mgr-Distribute-Interest: Total effective stake amount in pool " ..
+      pool_id .. " is " .. total_effective_stake_amount)
+
+    -- 2. Aggregate stakes per user and calculate total effective stake
+
+    local eligible_stakers = PoolMgrDb:getEligibleStakersInPool(pool_id)
+    local user_total_effective_stakes = {} -- Key: user_wallet_address, Value: bint total effective stake
+    local overall_total_effective_stake = '0'
+    for _, _staker in ipairs(eligible_stakers) do
+      local user_addr = _staker.user_wallet_address
+      local stake_amount = _staker.staked_amount
+
+      overall_total_effective_stake = BintUtils.add(overall_total_effective_stake, stake_amount)
+      if user_total_effective_stakes[user_addr] then
+        user_total_effective_stakes[user_addr] = BintUtils.add(user_total_effective_stakes[user_addr], stake_amount)
+      else
+        user_total_effective_stakes[user_addr] = stake_amount
       end
-      Logger.info("Final  times is  ".. times)
-      pool.last_distributed_time = timestamp
-      -- 1. Get all eligible stake portions for the pool
-      local total_effective_stake_amount = PoolMgrDb:getTotalEffectiveStakeAmountInPool(pool_id)
-      if BintUtils.le(total_effective_stake_amount, '0') then
-        Logger.info("Mgr-Distribute-Interest: No eligible stake portions found for pool " ..
-          pool_id .. ". No interest will be distributed.")
-        return
-      end
-      Logger.info("Mgr-Distribute-Interest: Total effective stake amount in pool " ..
-        pool_id .. " is " .. total_effective_stake_amount)
+    end
+    -- 3. Calculate and record interest for each user, prepare batch transfer data
 
-      -- 2. Aggregate stakes per user and calculate total effective stake
-
-      local eligible_stakers = PoolMgrDb:getEligibleStakersInPool(pool_id)
-      local user_total_effective_stakes = {} -- Key: user_wallet_address, Value: bint total effective stake
-      local overall_total_effective_stake = '0'
-      for _, _staker in ipairs(eligible_stakers) do
-        local user_addr = _staker.user_wallet_address
-        local stake_amount = _staker.staked_amount
-
-        overall_total_effective_stake = BintUtils.add(overall_total_effective_stake, stake_amount)
-        if user_total_effective_stakes[user_addr] then
-          user_total_effective_stakes[user_addr] = BintUtils.add(user_total_effective_stakes[user_addr], stake_amount)
-        else
-          user_total_effective_stakes[user_addr] = stake_amount
+    local total_interest_calculated_for_distribution = '0' -- For tracking dust
+    local daily_interest_amount = pool.rewards_amount
+    local floor = math.floor
+    for user_addr, user_effective_stake in pairs(user_total_effective_stakes) do
+      -- Calculate user's interest: (user_effective_stake * total_daily_interest_amount) / overall_total_effective_stake
+      Logger.info("User: " .. user_addr .. ", Effective Stake: " .. user_effective_stake)
+      local numerator = BintUtils.multiply(user_effective_stake, daily_interest_amount)
+      local user_interest_share = floor(BintUtils.divide(numerator, overall_total_effective_stake) * times) -- Integer division
+      local user_interest_share_bint = BintUtils.toBalanceValue(user_interest_share)
+      if BintUtils.gt(user_interest_share_bint, '0') then
+        -- Add interst to undistribute interest
+        Undistributed_Interest[user_addr] = BintUtils.add(Undistributed_Interest[user_addr] or '0',
+          user_interest_share_bint)
+        -- Record the distribution in the database
+        local record_ok, record_err = PoolMgrDb:recordInterestDistribution(user_addr, pool_id, user_interest_share_bint,
+          user_effective_stake)
+        if not record_ok then
+          Logger.error("Mgr-Distribute-Interest: Failed to record interest distribution for user " .. user_addr ..
+            " in pool " ..
+            pool_id .. ". Error: " .. (record_err or "Unknown") .. ". Skipping this user for batch transfer.")
+          goto continue_loop -- Skip this user if DB recording fails
         end
-      end
-      -- 3. Calculate and record interest for each user, prepare batch transfer data
+        -- Add to batch transfer list
+        -- table.insert(batch_transfer_data, user_addr .. "," .. user_interest_share)
 
-      local total_interest_calculated_for_distribution = '0' -- For tracking dust
-      local daily_interest_amount = pool.rewards_amount
-      local floor = math.floor
-      for user_addr, user_effective_stake in pairs(user_total_effective_stakes) do
-        -- Calculate user's interest: (user_effective_stake * total_daily_interest_amount) / overall_total_effective_stake
-        Logger.info("User: " .. user_addr .. ", Effective Stake: " .. user_effective_stake)
-        local numerator = BintUtils.multiply(user_effective_stake, daily_interest_amount)
-        local user_interest_share = floor(BintUtils.divide(numerator, overall_total_effective_stake) * times) -- Integer division
-        local user_interest_share_bint = BintUtils.toBalanceValue(user_interest_share)
-        if BintUtils.gt(user_interest_share_bint, '0') then
-          -- Add interst to undistribute interest
-          Undistributed_Interest[user_addr] = BintUtils.add(Undistributed_Interest[user_addr] or '0',
-            user_interest_share_bint)
-          -- Record the distribution in the database
-          local record_ok, record_err = PoolMgrDb:recordInterestDistribution(user_addr, pool_id, user_interest_share_bint,
-            user_effective_stake)
-          if not record_ok then
-            Logger.error("Mgr-Distribute-Interest: Failed to record interest distribution for user " .. user_addr ..
-              " in pool " ..
-              pool_id .. ". Error: " .. (record_err or "Unknown") .. ". Skipping this user for batch transfer.")
-            goto continue_loop -- Skip this user if DB recording fails
-          end
-          -- Add to batch transfer list
-          -- table.insert(batch_transfer_data, user_addr .. "," .. user_interest_share)
-
-          total_interest_calculated_for_distribution = BintUtils.add(total_interest_calculated_for_distribution,
-            user_interest_share_bint)
-          Logger.debug("Mgr-Distribute-Interest: User " .. user_addr .. " in pool " .. pool_id ..
-            " eligible for " .. user_interest_share_bint .. " interest from stake " .. user_effective_stake)
-        else
-          Logger.debug("Mgr-Distribute-Interest: User " .. user_addr .. " in pool " .. pool_id ..
-            " calculated interest share is zero or less. Stake: " .. user_effective_stake)
-        end
-        ::continue_loop::
+        total_interest_calculated_for_distribution = BintUtils.add(total_interest_calculated_for_distribution,
+          user_interest_share_bint)
+        Logger.debug("Mgr-Distribute-Interest: User " .. user_addr .. " in pool " .. pool_id ..
+          " eligible for " .. user_interest_share_bint .. " interest from stake " .. user_effective_stake)
+      else
+        Logger.debug("Mgr-Distribute-Interest: User " .. user_addr .. " in pool " .. pool_id ..
+          " calculated interest share is zero or less. Stake: " .. user_effective_stake)
       end
+      ::continue_loop::
     end
   end
 end
@@ -575,11 +586,11 @@ Handlers.add(
 
 -- Initialization flag to prevent re-initialization
 Initialized = Initialized or false
-
+Logger.info("Initialized " )
 if Initialized == false then
   Initialized = true
-  local pool1 = createPool("1", "APUS_network", "5000000000000000000", "4109000000000000",
-    "1749499200000", "1757448000000")
+  local pool1 = createPool("1", "APUS_network", "5000000000000000000", "4109000000000000",1749326400000,
+    1749499200000, 1757448000000)
   Pools[pool1.pool_id] = pool1
   Send({
     device = 'patch@1.0',
