@@ -1,26 +1,71 @@
--- Pool Process Implementation
--- Manages AI tasks, user credits within the pool, and GPU Node Oracles.
+local JSON          = require("json")
+local Logger        = require('utils.log')
+local BintUtils     = require('utils.bint_utils')
+local PoolDb        = require('dao.pool_db').new() -- Initialize DAL
+local Config        = require('utils.config')
 
--- AO Library (Implicitly available)
--- local ao = require('ao') -- Assuming 'ao' is globally available or required implicitly
-
--- Utilities
-local JSON = require("json")
-local Logger = require('utils.log')
-local BintUtils = require('utils.bint_utils')
-local PoolDb = require('dao.pool_db').new() -- Initialize DAL
-local Config = require('utils.config')
-Logger.LogLevel = "trace"
+Logger.LogLevel     = "trace"
 
 -- Process State (In-memory, persisted via AO mechanisms)
 -- Credits: Map<wallet_address, bigint_string>
-Credits = Credits or {} -- Load from state if available
+Credits             = Credits or {} -- Load from state if available
 -- Oracles: Map<node_id, owner_address>
-Oracles = Oracles or {} -- Load from state if available
-
+Oracles             = Oracles or {} -- Load from state if available
+ProcessIds          = ProcessIds or {} -- Load from state if available
 -- Constants from Config
 POOL_MGR_PROCESS_ID = POOL_MGR_PROCESS_ID or Config.PoolMgrProcessId
-TASK_COST = Config.TaskCost
+TASK_COST           = TASK_COST or Config.TaskCost
+
+-- Functions to fetch state
+function getCredits()
+  return JSON.encode(Credits)
+end
+
+function getOracles()
+  return JSON.encode(Oracles)
+end
+
+function getPendingTaskCount()
+  return JSON.encode(PoolDb:getPendingTaskCount())
+end
+
+function getTaskStatistics()
+  return JSON.encode(PoolDb:getTaskStatistics())
+end
+
+function getTasks()
+  return JSON.encode(PoolDb:getAllTasks())
+end
+function getProcessIds()
+  return JSON.encode(ProcessIds)
+end
+
+-- Cache state on spawn
+InitialCache = InitialCache or 'INCOMPLETE'
+if InitialCache == 'INCOMPLETE' then
+  Send({
+    device = 'patch@1.0',
+    credits = getCredits(),
+    oracles = getOracles(),
+    pending_taskcount = getPendingTaskCount(),
+    tasks = getTasks(),
+    task_statistics = getTaskStatistics(),
+    process_ids = getProcessIds()
+
+  })
+  InitialCache = 'COMPLETE'
+end
+
+function updateTaskState()
+  Send({
+    device = 'patch@1.0',
+    credits = getCredits(),
+    pending_taskcount = getPendingTaskCount(),
+    tasks = getTasks(),
+    task_statistics = getTaskStatistics(),
+    process_ids = getProcessIds()
+  })
+end
 
 -- ================= Handlers =================
 
@@ -28,11 +73,11 @@ TASK_COST = Config.TaskCost
 -- Description: Adds credit to a user's balance, only accepts messages from the configured Pool Manager.
 Handlers.add(
   "Add-Credit",
-  { Action = "AN-Credit-Notice"},
+  { Action = "AN-Credit-Notice" },
   function(msg)
-    local user = msg.Tags.User
+    local user     = msg.Tags.User
     local quantity = msg.Tags.Quantity
-    local from  = msg.From
+    local from     = msg.From
     assert(from == POOL_MGR_PROCESS_ID, "Only accept Add-Credit from Pool Manager")
     assert(type(user) == 'string', "Add-Credit requires a user")
     Logger.trace("Processing Add-Credit for User: " .. user .. ", Quantity: " .. quantity)
@@ -53,6 +98,117 @@ Handlers.add(
         Data = JSON.encode({ user = user, balance = Credits[user] })
       }
     )
+    Send({
+      device = 'patch@1.0',
+      credits = getCredits()
+    })
+  end
+)
+--- Handler: Add-ProcessId
+-- Description: Associates a process ID with a wallet address.
+Handlers.add(
+  "Add-Processid",
+  { Action = "Add-Processid" },
+  function(msg)
+    local user = msg.From
+    local data = JSON.decode(msg.Data)
+    local process_id = data.process_id
+    local name = data.name
+    local created_at = os.time()
+    local created_by = user
+
+
+    -- Validate input
+    if not process_id or type(process_id) ~= "string" or process_id == "" then
+      Logger.warn("Add-ProcessId failed: Missing or invalid process_id from " .. user)
+      msg.reply({
+        Tags = { Code = "400" },
+        Data = "Missing or invalid process_id"
+      })
+      return
+    end
+
+
+    -- Store process_id → wallet mapping
+    ProcessIds[process_id] = {
+      name = name,
+      created_at = created_at,
+      created_by = created_by,
+      last_used = ""
+    }
+    
+    Logger.info("Added Process ID for user " .. user .. ": " .. process_id)
+    -- Broadcast update
+    Send({
+      device = 'patch@1.0',
+      process_ids = getProcessIds() -- Update any UI or state tracking
+    })
+    -- Confirm success
+    msg.reply({
+      Tags = { Code = "200", Action = "ProcessId-Added" },
+      Data = JSON.encode({ user = user, process_id = process_id })
+    })
+
+  end
+)
+
+
+-- Handler: Remove-Processid
+-- Description: Removes the association of a process ID with a wallet address.
+Handlers.add(
+  "Remove-Processid",
+  { Action = "Remove-Processid" },
+  function(msg)
+    local user = msg.From
+    local data = JSON.decode(msg.Data)
+    local process_id = data.process_id
+
+    -- Validate input
+    if not process_id or type(process_id) ~= "string" or process_id == "" then
+      Logger.warn("Delete-ProcessId failed: Missing or invalid process_id from " .. user)
+      msg.reply({
+        Tags = { Code = "400" },
+        Data = "Missing or invalid process_id"
+      })
+      return
+    end
+
+    -- Check if the process_id exists
+    if not ProcessIds[process_id] then
+      Logger.warn("Delete-ProcessId failed: Process ID '" .. process_id .. "' does not exist.")
+      msg.reply({
+        Tags = { Code = "404" },
+        Data = "Process ID does not exist."
+      })
+      return
+    end
+
+    -- Ensure the requesting user owns this process_id
+    if ProcessIds[process_id]["created_by"] ~= user then
+      Logger.warn("Delete-ProcessId failed: User " .. user .. " is not authorized to delete process_id " .. process_id)
+      msg.reply({
+        Tags = { Code = "403" },
+        Data = "Unauthorized: You do not own this process ID."
+      })
+      return
+    end
+
+    -- Remove the process_id from the mapping
+    ProcessIds[process_id] = nil
+
+    Logger.info("Deleted Process ID for user " .. user .. ": " .. process_id)
+
+    -- Broadcast update
+    Send({
+      device = 'patch@1.0',
+      process_ids = getProcessIds() -- Update any UI or state tracking
+    })
+
+    -- Confirm success
+    msg.reply({
+      Tags = { Code = "200", Action = "ProcessId-removed" },
+      Data = JSON.encode({ user = user, process_id = process_id })
+    })
   end
 )
 
@@ -60,7 +216,7 @@ Handlers.add(
 -- Description: Transfer credits back to Pool Manager.
 Handlers.add(
   "Transfer-Credits",
-  { Action = "Transfer-Credits"},
+  { Action = "Transfer-Credits" },
   function(msg)
     local user = msg.From
     local quantity = msg.Tags.Quantity
@@ -89,19 +245,9 @@ Handlers.add(
         Tags = { Action = "AN-Credit-Notice", User = user, Quantity = quantity },
       }
     )
-  end
-)
-
---- Handler: Get-Credit-Balance
--- Description: Allows a user to query their credit balance within this pool.
-Handlers.add(
-  "Get-Credit-Balance",
-  { Action = "Credit-Balance" },
-  function(msg)
-    local user = msg.Tags.Recipient or msg.From
-    msg.reply({
-      Tags = { Code = "200" },
-      Data = JSON.encode({ user = user, balance = BintUtils.toBalanceValue(Credits[user] or '0') })
+    Send({
+      device = 'patch@1.0',
+      credits = getCredits()
     })
   end
 )
@@ -112,10 +258,10 @@ Handlers.add(
   "Add-Task",
   { Action = "Add-Task" },
   function(msg)
-    local user = msg.From
+    local from = msg.From
     local ref = msg.Tags["X-Reference"] or msg.Tags.Reference
     if not ref then
-      Logger.error("Add-Task failed: Missing reference ID from " .. user)
+      Logger.error("Add-Task failed: Missing reference ID from " .. from)
       msg.reply({
         Tags = { Code = "400" },
         Data = "Missing reference ID"
@@ -125,54 +271,43 @@ Handlers.add(
     local data = JSON.decode(msg.Data)
     local prompt = data.prompt
     local config = data.config or [[{"n_gpu_layers":48,"ctx_size":20480}]] -- Optional
-
     if not prompt or type(prompt) ~= "string" or prompt == "" then
-      Logger.warn("Add-Task failed: Missing or invalid prompt from " .. user)
+      Logger.warn("Add-Task failed: Missing or invalid prompt from " .. from)
       msg.reply({
         Tags = { Code = "400" },
         Data = "Missing or invalid prompt"
       })
       return
     end
+    local user = ""
+    -- Determine actual wallet owner if sender is a process ID
+    if ProcessIds[from] then
+      user = ProcessIds[from]["created_by"] 
+    else
+      user = from
+    end
 
     -- Check User Credit Balance
-    local current_balance = Credits[user] or '0'
+    local current_balance = Credits[user] or "0"
     if BintUtils.lt(current_balance, TASK_COST) then
       Logger.warn("Add-Task failed: Insufficient credits for user " ..
-        user .. ". Balance: " .. current_balance .. ", Cost: " .. TASK_COST)
+        from .. ". Balance: " .. current_balance .. ", Cost: " .. TASK_COST)
       msg.reply({ Tags = { Code = "403" }, Data = "Insufficient credits" })
       return
     end
 
-    Logger.trace("Processing Add-Task from User: " .. user .. ", Prompt: " .. prompt .. ", Config: " .. config)
-
     -- Deduct Credit
     Credits[user] = BintUtils.subtract(current_balance, TASK_COST)
-
+    -- update last_updated
+    if ProcessIds[from] then
+       ProcessIds[from]["last_used"] = os.time()
+    end
     -- Add Task to Database
     PoolDb:addTask(ref, user, prompt, config)
 
     Logger.trace("Task added to database with ref: " .. ref .. ", User: " .. user .. ", Cost: " .. TASK_COST)
-  end
-)
-
-
--- Handler: Has-Pending-Task
--- Description: Checks if there are any pending tasks in the pool. for dryrun
-Handlers.add(
-  "Has-Pending-Task",
-  { Action = "Has-Pending-Task" },
-  function(msg)
-    local has_pending_tasks = PoolDb:hasPendingTask()
-    if has_pending_tasks then
-      msg.reply({
-        Tags = { Code = "200" },
-      })
-    else
-      msg.reply({
-        Tags = { Code = "204" },
-      })
-    end
+    -- Broadcast update
+    updateTaskState()
   end
 )
 
@@ -180,10 +315,10 @@ Handlers.add(
 -- Description: Finds a pending task, marks it as processing, and returns it to a registered Oracle.
 Handlers.add(
   "Get-Pending-Task",
-  { Action = "Get-Pending-Task", NodeID = "_" },
+  { Action = "Get-Pending-Task", Nodeid = "_" },
   function(msg)
     local oracle_owner = msg.From
-    local oracle_node_id = msg.Tags.NodeID -- Oracles should identify themselves with their Node ID
+    local oracle_node_id = msg.Tags.Nodeid -- Oracles should identify themselves with their Node ID
 
     -- Permission Check: Must be a registered Oracle owner AND provide their node ID
     local is_node_registered = false
@@ -208,7 +343,7 @@ Handlers.add(
 
     if task then
       Logger.trace("Oracle " ..
-      oracle_owner .. " (Node ID: " .. oracle_node_id .. ") requested a pending task " .. task.ref)
+        oracle_owner .. " (Node ID: " .. oracle_node_id .. ") requested a pending task " .. task.ref)
       -- Send task details to the Oracle
       msg.reply({
         Tags = { Code = "200" },
@@ -225,6 +360,8 @@ Handlers.add(
         Data = "No pending tasks available"
       })
     end
+
+    updateTaskState()
   end
 )
 
@@ -272,6 +409,8 @@ Handlers.add(
     else
       Logger.error("Failed to set task response for ref " .. task_ref .. ". Error: " .. (err or "Unknown DB error"))
     end
+
+    updateTaskState()
   end
 )
 
@@ -305,17 +444,6 @@ Handlers.add(
   end
 )
 
---- Handler: Tasks-Statistics
--- Description: Returns statistics about tasks in the pool.
-Handlers.add(
-  "Tasks-Statistics",
-  { Action = "Tasks-Statistics" },
-  function(msg)
-    local stats = PoolDb:getTaskStatistics()
-    msg.reply({ Data = JSON.encode(stats) })
-  end
-)
-
 --- Handler: Add-Node-Oracle
 -- Description: Allows the process owner to add a new GPU Node Oracle.
 Handlers.add(
@@ -334,6 +462,11 @@ Handlers.add(
 
     Oracles[node_id] = oracle_owner
     Logger.info("Oracle Node added/updated: ID=" .. node_id .. ", Owner=" .. oracle_owner)
+
+    Send({
+      device = 'patch@1.0',
+      oracles = getOracles()
+    })
   end
 )
 
@@ -353,20 +486,11 @@ Handlers.add(
 
     Oracles[node_id] = nil
     Logger.info("Oracle Node removed: ID=" .. node_id)
-  end
-)
 
---- Handler: Get-Node-Oracles
--- Description: Allows anyone to get the list of registered Oracle nodes and their owners.
-Handlers.add(
-  "Get-Node-Oracles",
-  { Action = "Get-Node-Oracles" },
-  function(msg)
-    local oracle_list = {}
-    for node_id, owner in pairs(Oracles) do
-      table.insert(oracle_list, { node_id = node_id, owner = owner })
-    end
-    msg.reply({ Data = JSON.encode(oracle_list) })
+    Send({
+      device = 'patch@1.0',
+      oracles = getOracles()
+    })
   end
 )
 

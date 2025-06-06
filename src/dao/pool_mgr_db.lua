@@ -9,6 +9,7 @@ PoolMgrDb = PoolMgrDb or sqlite3.open_memory()
 LogLevel = LogLevel or 'info'
 local PoolMgrDAO = {}
 PoolMgrDAO.__index = PoolMgrDAO
+Valid_Staking_Time = 24 * 60 * 60 * 1000
 
 -- Database Initialization
 local function initialize_database(db_admin)
@@ -279,7 +280,7 @@ end
 -- @param pool_id Pool ID.
 -- @return Total staked amount in the pool (bint string).
 
-function  PoolMgrDAO:getTotalPoolStakeAmount(pool_id)
+function PoolMgrDAO:getTotalPoolStakeAmount(pool_id)
   assert(pool_id == '0' or type(pool_id) == "string", "pool_id must be '0' or a string")
   return '100'
   -- local sql = [[
@@ -345,8 +346,7 @@ function PoolMgrDAO:getAllStakeRecords()
   return results
 end
 
--- local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60 * 1000
-local TWENTY_FOUR_HOURS_IN_MILLISECONDS = 60
+
 --[[
   Gets the total *effective* staked amount for a user in a specific pool.
   Effective stake is stake held for >= 24 hours.
@@ -356,10 +356,10 @@ function PoolMgrDAO:getEffectiveUserStake(user_wallet_address, pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local current_time = math.floor(os.time())
-  local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local eligibility_threshold_time = current_time - Valid_Staking_Time
 
   local sql = [[
-      SELECT staked_amount 
+      SELECT staked_amount
       FROM user_active_stake_portions
       WHERE user_wallet_address = ? AND pool_id = ? AND staked_at <= ?;
   ]]
@@ -367,9 +367,9 @@ function PoolMgrDAO:getEffectiveUserStake(user_wallet_address, pool_id)
 
   local effective_stake = '0'
   if rows then
-      for _, row in ipairs(rows) do
-          effective_stake = BintUtils.add(effective_stake, row.staked_amount)
-      end
+    for _, row in ipairs(rows) do
+      effective_stake = BintUtils.add(effective_stake, row.staked_amount)
+    end
   end
   return effective_stake
 end
@@ -381,10 +381,10 @@ function PoolMgrDAO:getTotalEffectiveStakeAmountInPool(pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local current_time = math.floor(os.time())
-  local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local eligibility_threshold_time = current_time - Valid_Staking_Time
 
   local sql = [[
-      SELECT staked_amount 
+      SELECT staked_amount
       FROM user_active_stake_portions
       WHERE pool_id = ? AND staked_at <= ?;
   ]]
@@ -392,9 +392,9 @@ function PoolMgrDAO:getTotalEffectiveStakeAmountInPool(pool_id)
 
   local total_effective_stake_amount = '0'
   if rows then
-      for _, row in ipairs(rows) do
-          total_effective_stake_amount = BintUtils.add(total_effective_stake_amount, row.staked_amount)
-      end
+    for _, row in ipairs(rows) do
+      total_effective_stake_amount = BintUtils.add(total_effective_stake_amount, row.staked_amount)
+    end
   end
   return total_effective_stake_amount
 end
@@ -404,10 +404,10 @@ Gets the total *effective* staked amount across ALL users and ALL pools.
 --]]
 function PoolMgrDAO:getGlobalTotalEffectiveStake()
   local current_time = math.floor(os.time())
-  local eligibility_threshold_time = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local eligibility_threshold_time = current_time - Valid_Staking_Time
 
   local sql = [[
-      SELECT staked_amount 
+      SELECT staked_amount
       FROM user_active_stake_portions
       WHERE staked_at <= ?;
   ]]
@@ -415,9 +415,9 @@ function PoolMgrDAO:getGlobalTotalEffectiveStake()
 
   local global_total_effective_stake = '0'
   if rows then
-      for _, row in ipairs(rows) do
-          global_total_effective_stake = BintUtils.add(global_total_effective_stake, row.staked_amount)
-      end
+    for _, row in ipairs(rows) do
+      global_total_effective_stake = BintUtils.add(global_total_effective_stake, row.staked_amount)
+    end
   end
   return global_total_effective_stake
 end
@@ -429,7 +429,7 @@ function PoolMgrDAO:getEligibleStakersInPool(pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local current_time = math.floor(os.time())
-  local twenty_four_hours_ago = current_time - TWENTY_FOUR_HOURS_IN_MILLISECONDS
+  local twenty_four_hours_ago = current_time - Valid_Staking_Time
 
   -- Select stakes where the last action was more than 24 hours ago and amount > 0
   local sql = [[
@@ -444,7 +444,6 @@ function PoolMgrDAO:getEligibleStakersInPool(pool_id)
   local eligible_stakers = self.dbAdmin:select(sql, params)
   return eligible_stakers or {}
 end
-
 
 --- Records an interest distribution event.
 -- @param user_wallet_address User's AR address.
@@ -467,11 +466,11 @@ function PoolMgrDAO:recordInterestDistribution(user_wallet_address, pool_id, amo
   local params = { user_wallet_address, pool_id, amount, stake_amount, current_time }
   local success, _ = self.dbAdmin:apply(sql, params)
   if success then
-      Logger.info("Recorded interest distribution for " .. user_wallet_address .. " in pool " .. pool_id .. ": " .. amount)
-      return true
+    Logger.info("Recorded interest distribution for " .. user_wallet_address .. " in pool " .. pool_id .. ": " .. amount)
+    return true
   else
-      Logger.error("Failed to record interest distribution for " .. user_wallet_address .. " in pool " .. pool_id)
-      return false
+    Logger.error("Failed to record interest distribution for " .. user_wallet_address .. " in pool " .. pool_id)
+    return false
   end
 end
 
@@ -484,19 +483,18 @@ function PoolMgrDAO:getTotalDistributedInterest(wallet_address, pool_id)
   assert(type(pool_id) == "string", "pool_id must be a string")
 
   local sql = [[
-      SELECT * 
+      SELECT *
       FROM interest_distributions
       WHERE user_wallet_address = ? AND pool_id = ?;
   ]]
   local result = self.dbAdmin:select(sql, { wallet_address, pool_id })
   local total_interest = '0'
   if result then
-      for _, row in ipairs(result) do
-          total_interest = BintUtils.add(total_interest, row.amount)
-      end
+    for _, row in ipairs(result) do
+      total_interest = BintUtils.add(total_interest, row.amount)
+    end
   end
   return total_interest
 end
-
 
 return PoolMgrDAO
